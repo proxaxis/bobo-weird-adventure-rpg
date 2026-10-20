@@ -4,13 +4,27 @@
  * 左: VrmCanvas（3Dアバター）、下部: 会話ログ + 入力。
  * ui-layer は pointer-events:none なので本パネルのみ auto を指定する。
  */
-import { nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 
 import VrmCanvas from '@/dialog/VrmCanvas.vue';
+import { P_INDEX } from '@/constants/parameters.js';
 import { useDialogStore } from '@/stores/dialogStore.js';
+import { useParameterStore } from '@/stores/parameterStore.js';
 
 const dialog = useDialogStore();
+const parameters = useParameterStore();
 const inputText = ref('');
+
+// 内面パラメータ→姿勢モーション用の気分（revision で追従）
+const mood = computed(() => {
+  void parameters.revision;
+  return {
+    trust: parameters.get(P_INDEX.TRUST_PLAYER),
+    fear: parameters.get(P_INDEX.TRUST_FEAR),
+    joy: parameters.get(P_INDEX.EMO_JOY),
+    aggression: parameters.get(P_INDEX.CBT_AGGRESSION),
+  };
+});
 const logEl = ref(null);
 /** @type {import('vue').Ref<InstanceType<typeof VrmCanvas> | null>} */
 const vrmRef = ref(null);
@@ -60,6 +74,7 @@ function onSubmit() {
           :model-url="dialog.vrmModelUrl"
           :expression="dialog.expression"
           :thinking="dialog.isThinking"
+          :mood="mood"
         />
         <div v-if="dialog.isThinking" class="thinking-badge">考え中…</div>
         <img
@@ -136,6 +151,11 @@ function onSubmit() {
 .avatar-area {
   position: relative;
   min-width: 0;
+  background: radial-gradient(
+    ellipse at 50% 80%,
+    rgba(60, 80, 110, 0.35),
+    rgba(8, 12, 20, 0.9) 75%
+  );
 }
 
 .player-portrait {

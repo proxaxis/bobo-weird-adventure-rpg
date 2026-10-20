@@ -24,6 +24,14 @@ const props = defineProps({
   expression: { type: String, default: 'neutral' },
   /** 応答待ち中（視線逸らし・首かしげ演出） */
   thinking: { type: Boolean, default: false },
+  /**
+   * 内面パラメータ由来の気分。姿勢・揺れ・視線を変調する。
+   * { trust:0..1, fear:0..1, joy:0..1, aggression:0..1 }
+   */
+  mood: {
+    type: Object,
+    default: () => ({ trust: 0.3, fear: 0.2, joy: 0.3, aggression: 0.3 }),
+  },
 });
 
 const emit = defineEmits(['ready', 'fallback', 'error']);
@@ -166,6 +174,7 @@ async function loadModel(url) {
       loaded.lookAt.target = lookTarget;
     }
     vrm = loaded;
+    applyRestPose(loaded);
     resolveVowelNames(loaded.expressionManager);
     captureIdleBones(loaded);
     frameCameraTo(loaded.scene);
@@ -210,9 +219,35 @@ function frameCameraTo(object) {
  * @param {import('@pixiv/three-vrm').VRM} v
  * @returns {void}
  */
+/**
+ * Tポーズを自然な立ち姿へ（腕を下げる）。基準姿勢記録の前に適用する。
+ * @param {import('@pixiv/three-vrm').VRM} v
+ * @returns {void}
+ */
+function applyRestPose(v) {
+  /** @param {string} n @param {'x'|'y'|'z'} a @param {number} val */
+  const set = (n, a, val) => {
+    const b = v.humanoid?.getNormalizedBoneNode(n);
+    if (b) b.rotation[a] = val;
+  };
+  // 上腕を体側へ下ろす（±Z、正規化ボーンならモデル非依存）
+  set('leftUpperArm', 'z', 1.15);
+  set('rightUpperArm', 'z', -1.15);
+  // 肘をごく少しだけ前へ曲げる（自然な脱力感）
+  set('leftLowerArm', 'x', 0.08);
+  set('rightLowerArm', 'x', 0.08);
+}
+
 function captureIdleBones(v) {
   idleBones.length = 0;
-  const names = /** @type {const} */ (['hips', 'spine', 'chest', 'head']);
+  const names = /** @type {const} */ ([
+    'hips',
+    'spine',
+    'chest',
+    'head',
+    'leftUpperArm',
+    'rightUpperArm',
+  ]);
   for (const name of names) {
     const bone = v.humanoid?.getNormalizedBoneNode(name);
     if (bone) {
@@ -404,15 +439,24 @@ function updateMouth(dt) {
  * @returns {void}
  */
 function updateMotion(now) {
-  const breath = Math.sin(now * 2.0); // 呼吸 ~0.32Hz
-  const drift = Math.sin(now * 0.37); // 視線のゆるい漂い
-  const sway = Math.sin(now * 0.55); // 体の揺れ
+  const m = props.mood;
+  // 警戒度: 恐怖と不信（低信頼）で高まる
+  const guard = Math.min(1, Math.max(0, (m.fear ?? 0) * 0.7 + (1 - (m.trust ?? 0.3)) * 0.5));
+  // 開放度: 高信頼・低恐怖で上がる（警戒と相殺）
+  const open = Math.min(1, Math.max(0, ((m.trust ?? 0.3) - 0.55) * 1.8)) * (1 - guard);
+  // 揺れ振幅: 警戒で硬直、心を開くと大きく
+  const amp = (1 - guard * 0.55) * (1 + open * 0.4);
+  const aggr = Math.min(1, Math.max(0, m.aggression ?? 0));
 
-  // 視線ターゲット
+  const breath = Math.sin(now * 2.0) * amp; // 呼吸 ~0.32Hz
+  const drift = Math.sin(now * 0.37); // 視線のゆるい漂い
+  const sway = Math.sin(now * 0.55) * amp; // 体の揺れ
+
+  // 視線ターゲット: 警戒時は目を逸らす
   if (lookTarget && camera) {
     lookTarget.position.x =
-      (props.thinking ? 0.35 : 0) + drift * 0.08;
-    lookTarget.position.y = lookBaseY + Math.sin(now * 0.6) * 0.03;
+      (props.thinking ? 0.35 : 0) + drift * 0.08 + guard * 0.3;
+    lookTarget.position.y = lookBaseY + Math.sin(now * 0.6) * 0.03 - guard * 0.1;
     lookTarget.position.z = camera.position.z + 0.2;
   }
 
@@ -433,13 +477,21 @@ function updateMotion(now) {
       b.bone.position.y = b.baseY + breath * 0.004;
       r.z += sway * 0.012;
     } else if (b.name === 'spine') {
-      r.x += 0.015 + breath * 0.01;
+      // 警戒→僅かに後傾、心を開く→前傾、攻撃的→わずかに前のめり
+      r.x += 0.015 + breath * 0.01 - guard * 0.045 + open * 0.04 + aggr * 0.02;
     } else if (b.name === 'chest') {
-      r.x += breath * 0.008;
-      r.y += sway * 0.04;
+      r.x += breath * 0.008 - guard * 0.03;
+      // 警戒時は体を少し逸らす（半身になる）
+      r.y += sway * 0.04 + guard * 0.12;
     } else if (b.name === 'head') {
-      r.y += Math.sin(now * 0.45) * 0.03;
-      r.z += (props.thinking ? 0.1 : 0) + Math.sin(now * 0.7) * 0.012;
+      r.y += Math.sin(now * 0.45) * 0.03 * amp + guard * 0.14;
+      r.x += guard * 0.06; // やや俯き加減
+      r.z += (props.thinking ? 0.1 : 0) + Math.sin(now * 0.7) * 0.012 * amp + open * 0.08;
+    } else if (b.name === 'leftUpperArm') {
+      // 警戒時は腕を体へ引き寄せる
+      r.z += guard * 0.08 + Math.sin(now * 0.5) * 0.02 * amp;
+    } else if (b.name === 'rightUpperArm') {
+      r.z -= guard * 0.08 + Math.sin(now * 0.5 + 0.6) * 0.02 * amp;
     }
     // ジェスチャ差分（hips.y は位置、他は回転へ加算）
     if (g && gt < 1) {
