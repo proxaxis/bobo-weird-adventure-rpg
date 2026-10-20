@@ -20,6 +20,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 8010,
     strictPort: true,
+    allowedHosts: ['localserver'],
     proxy: {
       // クライアントは VITE_AI_BASE_URL 未設定時モック応答を使うため、
       // プロキシはバックエンド実装後に利用する。
