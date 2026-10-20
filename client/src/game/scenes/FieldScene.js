@@ -30,6 +30,7 @@ import {
   reportEntities,
   reportPresence,
 } from '@/net/routerClient.js';
+import { useBaseStore } from '@/stores/baseStore.js';
 import { useCompanionStore } from '@/stores/companionStore.js';
 import { useParameterStore } from '@/stores/parameterStore.js';
 import { usePeerStore } from '@/stores/peerStore.js';
@@ -160,6 +161,9 @@ export class FieldScene extends Phaser.Scene {
     /** @type {Map<string, {x: number, y: number}>} ピアの目標座標 */
     this.peerTargets = new Map();
     this.entityTimer = 0;
+    /** リモート拠点ブロック用の静的衝突グループ */
+    /** @type {Phaser.Physics.Arcade.StaticGroup | null} */
+    this.remoteBaseGroup = null;
   }
 
   /**
@@ -192,6 +196,16 @@ export class FieldScene extends Phaser.Scene {
     this.#createMapView();
     this.#createPlayer();
     this.#createBase();
+    // リモート拠点ブロック: ドアは meta.permitted 外の自分をブロック
+    this.remoteBaseGroup = this.physics.add.staticGroup();
+    const myId = this.#myPeerId() || 'me';
+    this.physics.add.collider(this.player, this.remoteBaseGroup, undefined,
+      (_p, block) => {
+        const meta = /** @type {any} */ (
+          /** @type {Phaser.Physics.Arcade.Sprite} */ (block).getData('meta') ?? {},
+        );
+        return !(meta.door === true && (meta.permitted ?? []).includes(myId));
+      });
     this.#createVoidSystem();
     this.#createNpcs();
     this.#createCreatures();
@@ -663,12 +677,25 @@ export class FieldScene extends Phaser.Scene {
               x: Math.round(c.sprite.x),
               y: Math.round(c.sprite.y),
             })),
-            ...[...this.baseBlocks].map((bk) => ({
-              id: `base:${myId}:${bk}`,
-              type: 'base',
-              x: Math.floor(bk % 100000) * TILE + TILE / 2,
-              y: Math.floor(bk / 100000) * TILE + TILE / 2,
-            })),
+            ...[...this.baseBlocks].map((bk) => {
+              const wx = Math.floor(bk % 100000) * TILE + TILE / 2;
+              const wy = Math.floor(bk / 100000) * TILE + TILE / 2;
+              return {
+                id: `base:${myId}:${bk}`,
+                type: 'base',
+                x: wx,
+                y: wy,
+                meta: {
+                  door: this.#isDoorTile(wx, wy),
+                  permitted: [
+                    ...new Set([
+                      ...this.basePermitted,
+                      ...useBaseStore().permittedIds,
+                    ]),
+                  ],
+                },
+              };
+            }),
           ];
           try {
             await reportEntities(key, myId, entities);
@@ -708,10 +735,22 @@ export class FieldScene extends Phaser.Scene {
       seen.add(key);
       let s = this.remoteEntities.get(key);
       if (!s) {
-        s = this.add.sprite(e.x, e.y, TEX[e.type] ?? 'spr-peer');
-        s.setScale(0.4);
-        s.setAlpha(0.85);
+        if (e.type === 'base' && this.remoteBaseGroup) {
+          // 拠点ブロックは静的衝突体として配置（ドア許可判定はcollider側）
+          const bs = /** @type {Phaser.Physics.Arcade.Sprite} */ (
+            this.remoteBaseGroup.create(e.x, e.y, 'tex-block')
+          );
+          bs.setData('meta', e.meta ?? {});
+          bs.refreshBody();
+          s = /** @type {Phaser.GameObjects.Sprite} */ (bs);
+        } else {
+          s = this.add.sprite(e.x, e.y, TEX[e.type] ?? 'spr-peer');
+          s.setScale(0.4);
+          s.setAlpha(0.85);
+        }
         this.remoteEntities.set(key, s);
+      } else if (e.type === 'base') {
+        /** @type {any} */ (s).setData('meta', e.meta ?? {});
       }
       this.remoteTargets.set(key, { x: e.x, y: e.y });
     }
@@ -1185,9 +1224,10 @@ export class FieldScene extends Phaser.Scene {
    * @returns {void}
    */
   #updateNpcs(time) {
-    const params = useParameterStore();
-    const trust = params.get(100); // P_INDEX.TRUST_PLAYER
-    for (const st of this.npcStates.values()) {
+    const companion = useCompanionStore();
+    for (const [npcId, st] of this.npcStates) {
+      // NPC個別の信頼度（対話差分で蓄積）
+      const trust = companion.trustOf(npcId);
       const s = st.sprite;
       if (!s.active) continue;
       if (time < st.waitUntil) continue;

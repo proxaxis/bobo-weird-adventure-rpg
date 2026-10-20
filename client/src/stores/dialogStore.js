@@ -142,7 +142,14 @@ export const useDialogStore = defineStore('dialog', () => {
           motionName.value = motion;
           motionSeq.value++;
         }
-        if (chunk.u?.length) parameters.applyDiffs(chunk.u);
+        if (chunk.u?.length) {
+          parameters.applyDiffs(chunk.u);
+          // このNPCへの信頼度(index 100)差分を個別に蓄積する
+          const dTrust = chunk.u
+            .filter((d) => d.index === 100)
+            .reduce((a, d) => a + d.delta, 0);
+          if (dTrust !== 0) companion.addTrust(npcId.value, dTrust);
+        }
         // ツール呼出し（サーバで検証済みのみ届く）
         if (chunk.x === 'reveal_name') {
           companion.markKnown({ npcId: npcId.value, name: npcName.value });

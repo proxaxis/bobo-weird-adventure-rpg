@@ -6,9 +6,11 @@
 import { ref } from 'vue';
 
 import { p2pSession } from '@/net/p2pSync.js';
+import { useBaseStore } from '@/stores/baseStore.js';
 import { usePeerStore } from '@/stores/peerStore.js';
 
 const p2p = usePeerStore();
+const base = useBaseStore();
 const remoteId = ref('');
 const collapsed = ref(false);
 
@@ -58,6 +60,18 @@ function join() {
         </button>
         <span class="status" :class="p2p.status">{{ p2p.status }}</span>
       </div>
+      <!-- 拠点ドアの通過許可（接続中ピアごと） -->
+      <div v-if="p2p.connectedIds.length" class="perm-list">
+        <div class="perm-title">拠点ドア許可</div>
+        <label v-for="id in p2p.connectedIds" :key="id" class="perm-row">
+          <input
+            type="checkbox"
+            :checked="base.isPermitted(id)"
+            @change="base.toggle(id)"
+          />
+          <span class="perm-id">{{ id.slice(0, 12) }}…</span>
+        </label>
+      </div>
     </div>
   </div>
 </template>
@@ -91,6 +105,31 @@ function join() {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.perm-list {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 4px;
+  padding: 4px 8px;
+}
+
+.perm-title {
+  color: #8fe6cf;
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.perm-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #c8d6e2;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.perm-id {
+  font-family: monospace;
 }
 
 .row {

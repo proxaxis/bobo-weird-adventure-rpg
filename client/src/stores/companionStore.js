@@ -17,6 +17,29 @@ export const useCompanionStore = defineStore('companion', () => {
   /** 名前を名乗ったNPCのID集合（セッション中保持）。 */
   const knownNpcIds = shallowRef(/** @type {Set<string>} */ (new Set()));
 
+  /** NPCごとの信頼度（対話差分 u の index100 を蓄積したローカル推定）。 */
+  const trustByNpc = shallowRef(/** @type {Map<string, number>} */ (new Map()));
+
+  /**
+   * NPC への信頼度を加算する。
+   * @param {string} npcId
+   * @param {number} delta
+   * @returns {void}
+   */
+  function addTrust(npcId, delta) {
+    const next = new Map(trustByNpc.value);
+    next.set(npcId, Math.min(1, Math.max(0, (next.get(npcId) ?? 0.2) + delta)));
+    trustByNpc.value = next;
+  }
+
+  /**
+   * @param {string} npcId
+   * @returns {number}
+   */
+  function trustOf(npcId) {
+    return trustByNpc.value.get(npcId) ?? 0.2;
+  }
+
   const isCompanion = computed(() => current.value !== null);
   const companionName = computed(() => current.value?.name ?? '');
 
@@ -70,10 +93,13 @@ export const useCompanionStore = defineStore('companion', () => {
   return {
     current,
     knownNpcIds,
+    trustByNpc,
     isCompanion,
     companionName,
     isKnown,
     markKnown,
+    addTrust,
+    trustOf,
     join,
     leave,
   };
