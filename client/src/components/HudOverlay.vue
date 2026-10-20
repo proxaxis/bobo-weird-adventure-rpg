@@ -8,9 +8,11 @@ import { computed } from 'vue';
 import { eventBus } from '@/core/eventBus.js';
 import { GAME_EVENTS } from '@/core/events.js';
 import { NPC_DEFS } from '@/game/npcs.js';
+import { useCompanionStore } from '@/stores/companionStore.js';
 import { usePlayerStore } from '@/stores/playerStore.js';
 
 const player = usePlayerStore();
+const companion = useCompanionStore();
 
 const pollutionPct = computed(() => `${Math.round(player.pollution * 100)}%`);
 const hpPct = computed(() => `${Math.round(player.hp * 100)}%`);
@@ -45,6 +47,10 @@ function debugOpenDialog() {
         <span class="value">{{ pollutionPct }}</span>
       </div>
       <div class="void-count">ボイド × {{ player.voidCount }}</div>
+      <div v-if="companion.isCompanion" class="companion-chip">
+        仲間: {{ companion.companionName }}
+        <button class="leave-btn" type="button" @click="companion.leave()">別れる</button>
+      </div>
     </div>
 
     <button class="debug-btn" type="button" @click="debugOpenDialog">
@@ -115,6 +121,26 @@ function debugOpenDialog() {
 .void-count {
   font-size: 13px;
   color: #8fe6cf;
+}
+
+.companion-chip {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #aef7e4;
+  pointer-events: auto;
+}
+
+.leave-btn {
+  background: none;
+  border: 1px solid rgba(174, 247, 228, 0.4);
+  color: #aef7e4;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
 }
 
 .debug-btn {

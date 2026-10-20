@@ -31,6 +31,9 @@ export const usePlayerStore = defineStore('player', () => {
     pollution.value = vital.pollution;
     hp.value = vital.hp;
     voidCount.value = vital.voidCount;
+    if (vital.nearestThreatDistance !== undefined) {
+      nearestThreatDistance.value = vital.nearestThreatDistance;
+    }
   }
 
   /**

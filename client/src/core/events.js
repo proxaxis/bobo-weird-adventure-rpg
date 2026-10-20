@@ -12,4 +12,10 @@ export const GAME_EVENTS = Object.freeze({
   PLAYER_POSITION: /** @type {'player:position'} */ ('player:position'),
   PEER_POSITION: /** @type {'peer:position'} */ ('peer:position'),
   PEER_STATUS: /** @type {'peer:status'} */ ('peer:status'),
+  COMPANION_JOIN: /** @type {'companion:join'} */ ('companion:join'),
+  COMPANION_LEAVE: /** @type {'companion:leave'} */ ('companion:leave'),
+  PEER_VOID_TAKE: /** @type {'peer:void-take'} */ ('peer:void-take'),
+  PEER_ATTACK: /** @type {'peer:attack'} */ ('peer:attack'),
+  PEER_STOLEN: /** @type {'peer:stolen'} */ ('peer:stolen'),
+  PLAYER_DEATH: /** @type {'player:death'} */ ('player:death'),
 });

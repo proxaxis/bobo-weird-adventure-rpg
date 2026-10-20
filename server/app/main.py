@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from .config import DATA_DIR, OLLAMA_MODEL
+from .config import DATA_DIR, LLM_TEMPERATURE, OLLAMA_MODEL
 from .constants import EXPRESSION_PRESETS, PARAM_COUNT
 from .diffengine import heuristic_diffs, sanitize_diffs
 from .llm import stream_chat
@@ -34,6 +34,37 @@ app.add_middleware(
 memory = MemoryStore(DATA_DIR)
 
 _FILLER_RE = re.compile(r"^(…|あの|えっと|えーと|うーん|その)")
+
+# 嗜好パラメータ(index)→話題検索クエリ。P_INDEX.PRF_TOPIC_* と同期。
+_PREF_TOPIC_QUERIES = {
+    400: "自然 癒し 話題",
+    401: "テクノロジー ニュース",
+    402: "料理 レシピ 美味しい",
+    403: "レトロ 旧世界 文化 懐かしい",
+}
+# 性格パラメータ PER_OPENNESS のindex（temperature 連動用）
+_PER_OPENNESS_INDEX = 300
+
+
+def _pick_topic_query(params: list[float], message: str) -> str | None:
+    """嗜好パラメータの最大値から話題クエリを選ぶ。0.3未満ならキーワード駆動のみ。"""
+    best_idx, best_val = -1, 0.3
+    for idx in _PREF_TOPIC_QUERIES:
+        v = params[idx] if idx < len(params) else 0.0
+        if v > best_val:
+            best_idx, best_val = idx, v
+    if best_idx >= 0:
+        return _PREF_TOPIC_QUERIES[best_idx]
+    if any(k in message for k in ("話題", "ニュース", "最近", "流行")):
+        return message[:24]
+    return None
+
+
+def _temperature(params: list[float]) -> float:
+    """ベース温度 ± 開放性パラメータ補正（0.3〜1.1にクランプ）。"""
+    openness = params[_PER_OPENNESS_INDEX] if _PER_OPENNESS_INDEX < len(params) else 0.5
+    t = LLM_TEMPERATURE + (openness - 0.5) * 0.3
+    return max(0.3, min(1.1, t))
 
 
 def _line(chunk: dict) -> str:
@@ -89,16 +120,18 @@ async def _stream(req: DialogRequest) -> AsyncGenerator[str, None]:
     heur = heuristic_diffs(req.message)
 
     topics: list[str] = []
-    if any(k in req.message for k in ("話題", "ニュース", "最近", "流行")):
-        topics = await search_topics(req.message)
+    topic_query = _pick_topic_query(req.parameters, req.message)
+    if topic_query:
+        topics = await search_topics(topic_query)
 
     messages = build_messages(
         req,
         history=memory.recent(req.npcId),
-        recalled=memory.recall(req.npcId, req.message),
+        recalled=await memory.recall(req.npcId, req.message),
         concepts=memory.related_concepts(req.npcId, req.message),
         topics=topics,
     )
+    temperature = _temperature(req.parameters)
 
     reply_text = ""
     first_chunk = True
@@ -121,7 +154,7 @@ async def _stream(req: DialogRequest) -> AsyncGenerator[str, None]:
         return out, chunk["t"]
 
     try:
-        async for token in stream_chat(messages):
+        async for token in stream_chat(messages, temperature=temperature):
             buffer += token
             while "\n" in buffer:
                 line, buffer = buffer.split("\n", 1)
@@ -144,7 +177,7 @@ async def _stream(req: DialogRequest) -> AsyncGenerator[str, None]:
             yield c
     finally:
         if reply_text:
-            memory.record(req.npcId, req.message, reply_text, req.parameters)
+            await memory.record(req.npcId, req.message, reply_text, req.parameters)
 
 
 @app.get("/health")

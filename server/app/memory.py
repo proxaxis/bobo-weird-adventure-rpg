@@ -14,9 +14,15 @@ import time
 from collections import deque
 from pathlib import Path
 
+import httpx
 import networkx as nx
 
-from .config import HISTORY_LIMIT
+from .config import (
+    HISTORY_LIMIT,
+    OLLAMA_BASE_URL,
+    OLLAMA_EMBED_MODEL,
+    OLLAMA_MODEL,
+)
 
 # 共起グラフで拾う概念語（世界観ベースのシード辞書）
 _SEED_CONCEPTS = (
@@ -41,6 +47,39 @@ def _similarity(a: set[str], b: set[str]) -> float:
     return inter / math.sqrt(len(a) * len(b))
 
 
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    return dot / (na * nb) if na and nb else 0.0
+
+
+async def _embed(text: str) -> list[float] | None:
+    """Ollama の embedding API でベクトル化。失敗時は None。"""
+    model = OLLAMA_EMBED_MODEL or OLLAMA_MODEL
+    url = f"{OLLAMA_BASE_URL.rstrip('/')}/api/embed"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(url, json={"model": model, "input": text})
+            r.raise_for_status()
+            embs = r.json().get("embeddings")
+            if embs:
+                return embs[0]
+    except Exception:
+        # 旧API(/api/embeddings)にフォールバック
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.post(
+                    f"{OLLAMA_BASE_URL.rstrip('/')}/api/embeddings",
+                    json={"model": model, "prompt": text},
+                )
+                r.raise_for_status()
+                return r.json().get("embedding")
+        except Exception:
+            return None
+    return None
+
+
 class MemoryStore:
     """NPC 単位の履歴・リコール・共起グラフを管理する。"""
 
@@ -58,13 +97,23 @@ class MemoryStore:
         hist = self._load_hist(npc_id)
         return list(hist)[-n:]
 
-    def recall(self, npc_id: str, query: str, k: int = 3) -> list[dict]:
-        """クエリと類似した過去ターンを k 件返す。"""
-        q = _bigrams(query)
+    async def recall(self, npc_id: str, query: str, k: int = 3) -> list[dict]:
+        """クエリと類似した過去ターンを k 件返す。
+
+        Ollama embedding が使えればコサイン類似度、
+        使えなければ文字バイグラム類似度にフォールバックする。
+        """
+        qv = await _embed(query)
+        qbg = _bigrams(query)
         scored = []
         for turn in self._load_hist(npc_id):
             text = f"{turn.get('player', '')} {turn.get('npc', '')}"
-            score = _similarity(q, _bigrams(text))
+            score = 0.0
+            if qv and isinstance(turn.get("v"), list):
+                score = _cosine(qv, turn["v"])
+            if score <= 0.05:
+                # embedding未整備/類似なしのターンはバイグラムで拾う
+                score = max(score, _similarity(qbg, _bigrams(text)) * 0.8)
             if score > 0.05:
                 scored.append((score, turn))
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -83,16 +132,18 @@ class MemoryStore:
                 out.update(n for n, _ in neighbors[:k])
         return sorted(out)[:k]
 
-    def record(self, npc_id: str, player_msg: str, npc_reply: str,
-               params: list[float] | None = None) -> None:
-        """1ターンを履歴・グラフへ記録し永続化する。"""
+    async def record(self, npc_id: str, player_msg: str, npc_reply: str,
+                     params: list[float] | None = None) -> None:
+        """1ターンを履歴・グラフへ記録し永続化する。embeddingも保持。"""
+        text = f"{player_msg} {npc_reply}"
+        vec = await _embed(text)
         hist = self._load_hist(npc_id)
-        hist.append(
-            {"t": time.time(), "player": player_msg, "npc": npc_reply}
-        )
+        turn = {"t": time.time(), "player": player_msg, "npc": npc_reply}
+        if vec:
+            turn["v"] = vec
+        hist.append(turn)
         self._save_hist(npc_id)
 
-        text = f"{player_msg} {npc_reply}"
         self._update_graph(npc_id, text)
 
         if params is not None:

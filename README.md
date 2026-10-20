@@ -61,18 +61,56 @@
 │                [WebRTC DataChannel (P2P)]              │
 │                 - 他プレイヤーとの位置・収集同期       │
 └────────────────────────────────────────────────────────┘
-
 ```
 
 ---
 
-## 4. 技術スタック
+## 4. 実装チェックリスト
+
+### 世界観・ゲームループ
+- [x] 終末フィールド / 汚染ゾーン（蓄積→HP減少）
+- [x] ボイド結晶の収集・リスポーン
+- [x] MOB（自律AI少女）との対話トリガ
+- [x] クリーチャー（徘徊・追跡・接触ダメージ・討伐ドロップ）
+- [x] 仲間化システム（信頼度閾値でスカウト→追従・収集・援護）
+- [x] 攻撃アクション（SPACE 近接攻撃）・死亡ペナルティ
+- [x] PvP 奪い合い（攻撃ヒット→ボイド略奪）
+
+### 技術基盤
+- [x] Vue 3 + Vite + Pinia + mitt（Phaser↔Vue 疎結合）
+- [x] Phaser 4 フィールド（※仕様書は3記載だが4.xを採用）
+- [x] Tiled マップ読み込み（生成スクリプト `tools/gen_map.py`）
+- [x] JSDoc + jsconfig checkJs（strict）
+- [x] Float32Array(1000) パラメータシステム + 差分適用
+- [x] Three.js + @pixiv/three-vrm（表情・瞬き・リップシンク）
+- [x] Howler.js 音響（環境風・SE、生成スクリプト `tools/gen_audio.py`）
+- [x] PeerJS P2P 同期（位置・ボイド取得・攻撃・略奪）
+
+### AI / バックエンド
+- [x] FastAPI + Ollama（完全セルフホスト、JSON-Lines ストリーム）
+- [x] フィラー前置き・表情プリセット・パラメータ差分サニタイズ
+- [x] NPC別メモリ（履歴・想起リコール・NetworkX 共起グラフ）
+- [x] Ollama embedding によるベクトルリコール（失敗時はバイグラム）
+- [x] 嗜好パラメータ駆動の話題選択 + SearXNG/Tavily 検索
+- [x] 温度パラメータの性格連動調整
+
+### 未実装 / 今後
+- [ ] VRM 実モデル配置（`client/public/models/*.vrm`）
+- [ ] 仲間の戦闘・採取行動の高度化（AI指示、戦術）
+- [ ] 真の unreliable DataChannel（PeerJS は信頼型のみ）
+- [ ] マルチセッション/ルーム管理、永続プレイヤーアカウント
+- [ ] Chroma/Qdrant 等の本格 Vector DB
+- [ ] TTS 音声合成・音声リップシンク
+
+---
+
+## 5. 技術スタック
 
 ### クライアントサイド (Frontend)
 
 * **Framework**: Vue 3 (Composition API / `<script setup>`) + Vite
 * **Language**: JavaScript (ESNext) + **JSDoc による厳格な型推論**
-* **2D Game Engine**: Phaser 3 (Arcade Physics, Tiled Map Loader)
+* **2D Game Engine**: Phaser 4 (Arcade Physics, Tiled Map Loader)
 * **3D / Avatar**: Three.js, `@pixiv/three-vrm`
 * **State Management**: Pinia (`Float32Array` を用いた1000パラメータ軽量保持)
 * **Event Bus**: `mitt` (Phaser と Vue の疎結合連携)
@@ -81,87 +119,82 @@
 
 ### AIバックエンド (Self-Hosted Backend)
 
-* **Framework**: Python 3.11+, FastAPI, Uvicorn
-* **LLM Engine**: Ollama (Qwen2.5 / Llama-3.1 系推奨)
-* **Agent / Context**: LangGraph, Graph RAG (Neo4j / NetworkX), Vector DB (Chroma)
+* **Framework**: Python 3.12+, FastAPI, Uvicorn
+* **LLM Engine**: Ollama (Qwen2.5 / Llama-3 系)
+* **Agent / Context**: ターン履歴 + embeddingリコール + Graph RAG (NetworkX)
 * **Tool / Search**: SearXNG / Tavily API
 
 ---
 
-## 5. プロジェクト構造
+## 6. プロジェクト構造
 
 ```text
 .
-├── public/
-│   ├── assets/              # 2Dスプライト, Tiledマップ, BGM/SE
-│   └── models/              # VRMモデルファイル (.vrm)
-├── src/
-│   ├── types.js             # JSDoc @typedef 型定義集約ファイル
-│   ├── main.js              # エントリポイント
-│   ├── App.vue              # CanvasレイヤーとUIレイヤーの結合
-│   ├── game/                # Phaser 3 領域（探索・移動・当たり判定）
-│   ├── components/          # Vue 3 領域（VRM会話画面、HUD、メニュー）
-│   ├── stores/              # Pinia（1000パラメータ、状態管理）
-│   ├── network/             # WebRTC P2P 通信モジュール
-│   └── ai/                  # AIサーバとの通信・ストリーミング処理
-├── server/                  # セルフホスト AI バックエンド (FastAPI)
-├── jsconfig.json            # VS Code 型チェック設定
-└── vite.config.js
-
+├── client/                       # Vue 3 + Vite フロントエンド
+│   ├── public/
+│   │   ├── maps/                 # tiles.png, field.tmj (tools/gen_map.py 生成)
+│   │   ├── audio/                # 効果音/環境音 wav (tools/gen_audio.py 生成)
+│   │   └── models/               # VRMモデルファイル (.vrm) をここに配置
+│   └── src/
+│       ├── types.js              # JSDoc @typedef 型定義集約
+│       ├── constants/parameters.js  # PARAM_COUNT=1000, P_INDEX 帯域設計
+│       ├── core/                 # eventBus(mitt) / イベント名 / 配線
+│       ├── stores/               # parameter / player / dialog / peer / companion
+│       ├── game/                 # Phaser 4 領域（FieldScene, entities, worldSeed）
+│       ├── dialog/               # VrmCanvas, DialogView, lipSync, expressions
+│       ├── components/           # HUD, P2pPanel, GameCanvas
+│       ├── net/                  # aiClient, mockAiStream, p2pSync
+│       └── audio/                # audioManager (Howler)
+├── server/                       # FastAPI AI バックエンド
+│   └── app/
+│       ├── main.py               # /dialog/stream (JSON-Lines NDJSON)
+│       ├── llm.py                # Ollama ストリーミング
+│       ├── prompt.py             # プロンプト組立（パラメータ/記憶/話題注入）
+│       ├── diffengine.py         # 差分サニタイズ + 規則ヒューリスティック
+│       ├── memory.py             # 履歴・embeddingリコール・共起グラフ
+│       └── search.py             # SearXNG / Tavily
+├── tools/                        # gen_map.py / gen_audio.py (アセット生成)
+├── docker-compose.yml            # client(node) :8010 + server(fastapi) :8787
+└── PROJECT_CONTEXT.md            # 設計仕様書
 ```
 
 ---
 
-## 6. セットアップ手順
+## 7. セットアップ手順
 
 ### 前提条件
 
-* Node.js 18+
-* Python 3.11+
-* [Ollama](https://ollama.com/)（または同等のローカルLLM実行環境）
+* Docker / Docker Compose
+* ホスト上の [Ollama](https://ollama.com/)（`ollama pull qwen2.5:7b-instruct`）
 
-### クライアント起動
+### 起動
 
 ```bash
-# リポジトリのクローン
-git clone <repository-url>
-cd <repository-folder>
+# 両サービス起動（初回は server イメージのビルドを含む）
+docker compose up -d --build
 
-# 依存パッケージのインストール
-npm install
+# クライアント dev サーバ (http://localhost:8010)
+docker exec -d bobo_rpg_client npm install
+docker exec -d bobo_rpg_client npm run dev
 
-# 開発サーバーの起動 (Vite)
-npm run dev
-
+# AIサーバは :8787 で自動起動済み（/health, /dialog/stream）
+# client の VITE_AI_BASE_URL 未設定時は vite プロキシ /ai 経由で接続される
 ```
 
-### AIサーバー起動
+### アセット再生成
 
 ```bash
-cd server
-
-# 仮想環境の作成と有効化
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# 依存ライブラリのインストール
-pip install -r requirements.txt
-
-# ローカルLLMモデルの準備 (別ターミナルで実行)
-ollama run qwen2.5:7b
-
-# APIサーバー起動
-uvicorn main:app --reload --port 8000
-
+python3 tools/gen_map.py    # client/public/maps/ へ tiles.png + field.tmj
+python3 tools/gen_audio.py  # client/public/audio/ へ wav 一式
 ```
 
 ---
 
-## 7. 開発ロードマップ
+## 8. 開発ロードマップ
 
 * [x] **Phase 1**: プロジェクト設計、ディレクトリ構造、JSDoc型定義、1000パラメータ構造の策定
-* [ ] **Phase 2**: 2D見下ろしフィールドの実装（マップ表示、汚染ゾーン、ボイドノード）
-* [ ] **Phase 3**: 3D VRM 会話コンポーネントの実装（表情同期、テキストストリーミング）
-* [ ] **Phase 4**: FastAPI + Ollama による自律対話・パラメータ差分返却エンジンの接続
-* [ ] **Phase 5**: WebRTC によるプレイヤー間P2P同期（位置同期、ボイドの奪い合い）
-* [ ] **Phase 6**: Graph RAG・外部Web検索ツールの統合による長期記憶と話題生成
+* [x] **Phase 2**: 2D見下ろしフィールド（Tiledマップ、汚染ゾーン、ボイド、クリーチャー、攻撃・死亡）
+* [x] **Phase 3**: 3D VRM 会話コンポーネント（表情同期、テキストストリーミング、リップシンク）
+* [x] **Phase 4**: FastAPI + Ollama による自律対話・パラメータ差分返却エンジン
+* [x] **Phase 5**: PeerJS による P2P 同期（位置・ボイド取得・攻撃・略奪）
+* [x] **Phase 6**: メモリ・embeddingリコール・Graph RAG素地・話題検索の統合

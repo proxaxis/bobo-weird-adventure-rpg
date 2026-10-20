@@ -54,6 +54,32 @@ export function ensureFieldTextures(scene) {
   // 他プレイヤー（P2P）
   circleTexture(scene, 'tex-peer', 14, '#ffd29f', '#7a4a1c');
 
+  // クリーチャー（変異体: 暗赤＋棘）
+  makeTexture(scene, 'tex-creature', 30, 30, (ctx, w, h) => {
+    ctx.beginPath();
+    ctx.arc(15, 15, 12, 0, Math.PI * 2);
+    ctx.fillStyle = '#6a2b3a';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#3a121c';
+    ctx.stroke();
+    // 棘
+    ctx.strokeStyle = '#8a3b4a';
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(15 + Math.cos(a) * 10, 15 + Math.sin(a) * 10);
+      ctx.lineTo(15 + Math.cos(a) * 15, 15 + Math.sin(a) * 15);
+      ctx.stroke();
+    }
+    // 目
+    ctx.fillStyle = '#ffe08a';
+    ctx.beginPath();
+    ctx.arc(11, 14, 1.8, 0, Math.PI * 2);
+    ctx.arc(19, 14, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
   // ボイド結晶（菱形＋発光）
   makeTexture(scene, 'tex-void', 28, 28, (ctx, w, h) => {
     const cx = w / 2;

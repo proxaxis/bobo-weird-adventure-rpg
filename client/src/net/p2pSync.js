@@ -21,11 +21,14 @@ const SEND_INTERVAL_MS = 80;
 
 /**
  * ピア間でやり取りするメッセージ。
- * @typedef {Object} PeerMessage
- * @property {'pos'} type
- * @property {number} seq - 送信側単調増加シーケンス
- * @property {number} x
- * @property {number} y
+ * - pos:       位置同期（間引き+単調seq）
+ * - void-take: ボイド採取通知（index=レイアウト上のノード番号）
+ * - attack:    攻撃範囲通知（x,y,r）
+ * - stolen:    略奪ボイド返報（被弾側→攻撃側）
+ * @typedef {{type: 'pos', seq: number, x: number, y: number}
+ *         | {type: 'void-take', index: number}
+ *         | {type: 'attack', x: number, y: number, r: number}
+ *         | {type: 'stolen', amount: number}} PeerMessage
  */
 
 class P2PSession {
@@ -123,15 +126,78 @@ class P2PSession {
    */
   #onData(peerId, data) {
     const msg = /** @type {PeerMessage} */ (data);
-    if (msg?.type !== 'pos') return;
-    const last = this.seenSeq.get(peerId) ?? -1;
-    if (msg.seq <= last) return; // 古いパケットは捨てる
-    this.seenSeq.set(peerId, msg.seq);
-    eventBus.emit(GAME_EVENTS.PEER_POSITION, {
-      peerId,
-      x: msg.x,
-      y: msg.y,
-    });
+    if (!msg || typeof msg !== 'object') return;
+    switch (msg.type) {
+      case 'pos': {
+        const last = this.seenSeq.get(peerId) ?? -1;
+        if (msg.seq <= last) return; // 古いパケットは捨てる
+        this.seenSeq.set(peerId, msg.seq);
+        eventBus.emit(GAME_EVENTS.PEER_POSITION, {
+          peerId,
+          x: msg.x,
+          y: msg.y,
+        });
+        break;
+      }
+      case 'void-take':
+        eventBus.emit(GAME_EVENTS.PEER_VOID_TAKE, { peerId, index: msg.index });
+        break;
+      case 'attack':
+        eventBus.emit(GAME_EVENTS.PEER_ATTACK, {
+          peerId,
+          x: msg.x,
+          y: msg.y,
+          r: msg.r,
+        });
+        break;
+      case 'stolen':
+        eventBus.emit(GAME_EVENTS.PEER_STOLEN, { peerId, amount: msg.amount });
+        break;
+      default:
+        break;
+    }
+  }
+
+  /**
+   * 全接続ピアへメッセージを送る。
+   * @param {PeerMessage} msg
+   * @returns {void}
+   */
+  #broadcast(msg) {
+    for (const conn of this.conns.values()) {
+      if (conn.open) conn.send(msg);
+    }
+  }
+
+  /**
+   * ボイド採取を全ピアへ通知する。
+   * @param {number} index - レイアウト上のノード番号
+   * @returns {void}
+   */
+  sendVoidTake(index) {
+    this.#broadcast({ type: 'void-take', index });
+  }
+
+  /**
+   * 攻撃範囲を全ピアへ通知する。
+   * @param {number} x
+   * @param {number} y
+   * @param {number} r
+   * @returns {void}
+   */
+  sendAttack(x, y, r) {
+    this.#broadcast({ type: 'attack', x, y, r });
+  }
+
+  /**
+   * 略奪されたボイド数を攻撃者へ返す。
+   * @param {string} peerId - 攻撃してきた相手
+   * @param {number} amount
+   * @returns {void}
+   */
+  sendStolen(peerId, amount) {
+    const conn = this.conns.get(peerId);
+    if (conn?.open) conn.send({ type: 'stolen', amount });
   }
 
   /**
@@ -165,9 +231,7 @@ class P2PSession {
       x: this.pendingPos.x,
       y: this.pendingPos.y,
     });
-    for (const conn of this.conns.values()) {
-      if (conn.open) conn.send(msg);
-    }
+    this.#broadcast(msg);
   }
 
   /**

@@ -55,6 +55,7 @@
  * @property {number} pollution - 汚染度（0〜1）
  * @property {number} hp - 体力（0〜1）
  * @property {number} voidCount - 所持ボイド数
+ * @property {number} [nearestThreatDistance] - 最寄り脅威（クリーチャー）までの距離px
  */
 
 /**
@@ -88,6 +89,42 @@
  */
 
 /**
+ * 仲間化イベントのペイロード（companion:join）。
+ * @typedef {Object} CompanionJoinPayload
+ * @property {string} npcId
+ * @property {string} name
+ */
+
+/**
+ * ピアがボイドを採取した通知（peer:void-take）。
+ * @typedef {Object} PeerVoidTake
+ * @property {string} peerId
+ * @property {number} index - 採取されたノードのレイアウトインデックス
+ */
+
+/**
+ * ピアの攻撃範囲通知（peer:attack）。
+ * @typedef {Object} PeerAttack
+ * @property {string} peerId
+ * @property {number} x
+ * @property {number} y
+ * @property {number} r - 攻撃半径px
+ */
+
+/**
+ * 略奪成功の返報（peer:stolen）。被攻撃者が奪われた量を攻撃者へ返す。
+ * @typedef {Object} PeerStolen
+ * @property {string} peerId - 略奪を受けた側（=返送先の攻撃者）
+ * @property {number} amount
+ */
+
+/**
+ * 死亡ペナルティ通知（player:death）。
+ * @typedef {Object} PlayerDeath
+ * @property {number} lostVoid - 失ったボイド数
+ */
+
+/**
  * mitt のイベント型マップ（Phaser ↔ Vue 疎結合プロトコル）。
  * ※コロンを含むキーは @property 記法で表せないためインライン型で定義する。
  * @typedef {{
@@ -98,6 +135,12 @@
  *   'player:position': PlayerPosition,
  *   'peer:position': PeerPosition,
  *   'peer:status': PeerStatus,
+ *   'companion:join': CompanionJoinPayload,
+ *   'companion:leave': void,
+ *   'peer:void-take': PeerVoidTake,
+ *   'peer:attack': PeerAttack,
+ *   'peer:stolen': PeerStolen,
+ *   'player:death': PlayerDeath,
  * }} GameEventMap
  */
 
