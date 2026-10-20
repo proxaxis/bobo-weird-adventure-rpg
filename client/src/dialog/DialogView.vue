@@ -20,12 +20,11 @@ const companion = useCompanionStore();
 const parameters = useParameterStore();
 const inputText = ref('');
 
-// 信頼度表示（revision を読んで追従させる）
+// 仲間化可否（revision を読んで追従させる）
 const trust = computed(() => {
   void parameters.revision;
   return parameters.get(P_INDEX.TRUST_PLAYER);
 });
-const trustPct = computed(() => Math.round(trust.value * 100));
 const canRecruit = computed(
   () => trust.value >= COMPANION_TRUST_THRESHOLD && !companion.isCompanion,
 );
@@ -38,6 +37,14 @@ watch(
   () => dialog.speechSeq,
   () => {
     vrmRef.value?.feedSpeech(dialog.speechText);
+  },
+);
+
+// 身振りをVRMへ流す
+watch(
+  () => dialog.motionSeq,
+  () => {
+    vrmRef.value?.triggerMotion(dialog.motionName);
   },
 );
 
@@ -68,7 +75,7 @@ function onRecruit() {
   if (!canRecruit.value) {
     dialog.messages.push({
       role: 'system',
-      text: `信頼が足りない（${trustPct.value}% / ${Math.round(COMPANION_TRUST_THRESHOLD * 100)}% 必要）。`,
+      text: 'まだ仲間に誘えない。もっと話して信頼を深めよう。',
     });
     return;
   }
@@ -97,7 +104,6 @@ function onRecruit() {
       <div class="chat-area">
         <header class="chat-header">
           <span class="npc-name">{{ dialog.npcName }}</span>
-          <span class="trust-meter" title="信頼度">信頼 {{ trustPct }}%</span>
           <div class="header-actions">
             <button
               class="recruit-btn"
@@ -199,12 +205,6 @@ function onRecruit() {
   font-size: 16px;
   font-weight: 600;
   color: #ffb7d5;
-}
-
-.trust-meter {
-  font-size: 12px;
-  color: #8fe6cf;
-  margin-left: 12px;
 }
 
 .header-actions {

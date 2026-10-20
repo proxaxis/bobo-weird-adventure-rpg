@@ -47,3 +47,6 @@ NAMED_PARAMS = {
 }
 
 EXPRESSION_PRESETS = ("neutral", "happy", "angry", "sad", "relaxed", "surprised")
+
+# 身振りプリセット（client/src/dialog/motions.js と同期）
+MOTION_PRESETS = ("nod", "shake", "tilt", "bow", "startle", "slump", "bounce")

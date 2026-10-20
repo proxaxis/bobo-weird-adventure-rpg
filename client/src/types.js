@@ -16,10 +16,16 @@
  */
 
 /**
+ * 身振りプリセット。motions.js の MOTION_PRESETS と同期。
+ * @typedef {'nod'|'shake'|'tilt'|'bow'|'startle'|'slump'|'bounce'} MotionPreset
+ */
+
+/**
  * AIサーバから届くストリーミングチャンク（JSON-Lines 1行分）。
  * @typedef {Object} StreamChunk
  * @property {string} t - 生成テキスト断片（フィラー含む）
  * @property {ExpressionPreset} [e] - 表情プリセット
+ * @property {MotionPreset} [m] - 身振りプリセット
  * @property {ParameterDiff[]} [u] - パラメータ差分配列
  */
 

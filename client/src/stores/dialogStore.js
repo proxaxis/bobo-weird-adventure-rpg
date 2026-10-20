@@ -9,6 +9,7 @@ import { ref, shallowRef } from 'vue';
 
 import { eventBus } from '@/core/eventBus.js';
 import { GAME_EVENTS } from '@/core/events.js';
+import { motionForExpression } from '@/dialog/motions.js';
 import { streamDialogChunks } from '@/net/aiClient.js';
 import { useParameterStore } from '@/stores/parameterStore.js';
 import { usePlayerStore } from '@/stores/playerStore.js';
@@ -50,6 +51,14 @@ export const useDialogStore = defineStore('dialog', () => {
    */
   const speechText = ref('');
   const speechSeq = ref(0);
+
+  /**
+   * 身振り用：直近のモーション名。motionSeq が変わるたびに
+   * DialogView が VrmCanvas.triggerMotion へ流す。
+   * @type {import('vue').Ref<import('@/types.js').MotionPreset | string>}
+   */
+  const motionName = ref('');
+  const motionSeq = ref(0);
 
   /**
    * 対話を開く（Phaser の dialog:open から呼ばれる）。
@@ -113,6 +122,12 @@ export const useDialogStore = defineStore('dialog', () => {
       for await (const chunk of streamDialogChunks(request)) {
         isThinking.value = false;
         if (chunk.e) expression.value = chunk.e;
+        // 身振り: 明示的な m があれば優先、なければ表情から既定を導出
+        const motion = chunk.m ?? (chunk.e ? motionForExpression(chunk.e) : null);
+        if (motion) {
+          motionName.value = motion;
+          motionSeq.value++;
+        }
         if (chunk.u?.length) parameters.applyDiffs(chunk.u);
         if (chunk.t) {
           reply.text += chunk.t;
@@ -141,6 +156,8 @@ export const useDialogStore = defineStore('dialog', () => {
     expression,
     speechText,
     speechSeq,
+    motionName,
+    motionSeq,
     open,
     close,
     send,

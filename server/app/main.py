@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from .config import DATA_DIR, LLM_TEMPERATURE, OLLAMA_MODEL
-from .constants import EXPRESSION_PRESETS, PARAM_COUNT
+from .constants import EXPRESSION_PRESETS, MOTION_PRESETS, PARAM_COUNT
 from .diffengine import heuristic_diffs, sanitize_diffs
 from .llm import stream_chat
 from .memory import MemoryStore
@@ -101,11 +101,15 @@ def _parse_line(line: str) -> dict | None:
     e = chunk.get("e")
     if e not in EXPRESSION_PRESETS:
         e = "neutral"
-    return {
+    m = chunk.get("m")
+    out = {
         "t": str(chunk.get("t", "")),
         "e": e,
         "u": sanitize_diffs(chunk.get("u")),
     }
+    if m in MOTION_PRESETS:
+        out["m"] = m
+    return out
 
 
 async def _fallback_reply(req: DialogRequest, heur: list[dict]) -> AsyncGenerator[str, None]:

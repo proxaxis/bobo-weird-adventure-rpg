@@ -11,6 +11,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMUtils, VRMLoaderPlugin } from '@pixiv/three-vrm';
 
 import { charToVowel, VOWEL_ALIASES } from '@/dialog/lipSync.js';
+import { GESTURES } from '@/dialog/motions.js';
 import {
   EXPRESSION_PRESETS,
   resolveExpressionName,
@@ -62,6 +63,8 @@ let resizeObserver = null;
 
 /** 表情の現在値（プリセット名→0..1、リープで滑らかに遷移） */
 const exprWeights = /** @type {Record<string, number>} */ ({});
+/** 再生中のジェスチャ（name + 開始時刻sec） */
+let activeGesture = /** @type {{name: string, start: number} | null} */ (null);
 /** ストリーミング文字の消費キュー */
 const speechQueue = /** @type {string[]} */ ([]);
 let speechAccum = 0;
@@ -80,7 +83,17 @@ const BLINK_DURATION = 0.14;
 function feedSpeech(text) {
   for (const ch of text) speechQueue.push(ch);
 }
-defineExpose({ feedSpeech });
+
+/**
+ * 会話内容に応じた身振りを再生する。
+ * @param {string} name - motions.js のプリセット名
+ * @returns {void}
+ */
+function triggerMotion(name) {
+  if (!GESTURES[/** @type {keyof typeof GESTURES} */ (name)]) return;
+  activeGesture = { name, start: performance.now() / 1000 };
+}
+defineExpose({ feedSpeech, triggerMotion });
 
 /**
  * @returns {void}
@@ -403,7 +416,14 @@ function updateMotion(now) {
     lookTarget.position.z = camera.position.z + 0.2;
   }
 
-  // VRM ボーンへアイドル姿勢を適用（基準姿勢 + 微振動）
+  // 会話ジェスチャの評価（アイドル揺れへ加算）
+  const g = activeGesture
+    ? GESTURES[/** @type {keyof typeof GESTURES} */ (activeGesture.name)]
+    : null;
+  const gt = g ? (now - /** @type {{start: number}} */ (activeGesture).start) / g.duration : 1;
+  if (gt >= 1) activeGesture = null;
+
+  // VRM ボーンへアイドル姿勢を適用（基準姿勢 + 微振動 + ジェスチャ）
   for (const b of idleBones) {
     const r = b.bone.rotation;
     r.x = b.base.x;
@@ -421,12 +441,34 @@ function updateMotion(now) {
       r.y += Math.sin(now * 0.45) * 0.03;
       r.z += (props.thinking ? 0.1 : 0) + Math.sin(now * 0.7) * 0.012;
     }
+    // ジェスチャ差分（hips.y は位置、他は回転へ加算）
+    if (g && gt < 1) {
+      const c = g.curves[b.name];
+      if (c) {
+        r.x += c.x?.(gt) ?? 0;
+        r.y += c.y !== undefined && b.name !== 'hips' ? c.y(gt) : 0;
+        r.z += c.z?.(gt) ?? 0;
+        if (b.name === 'hips' && c.y !== undefined) {
+          b.bone.position.y += c.y(gt);
+        }
+      }
+    }
   }
 
-  // フォールバックアバターはグループごと揺らす
+  // フォールバックアバターはグループごと揺らす（ジェスチャも近似適用）
   if (fallbackAvatar) {
     fallbackAvatar.position.y = breath * 0.012;
     fallbackAvatar.rotation.y = Math.sin(now * 0.3) * 0.05;
+    if (g && gt < 1) {
+      const hc = g.curves.head ?? {};
+      fallbackAvatar.position.y += g.curves.hips?.y?.(gt) ?? 0;
+      fallbackAvatar.rotation.x += (g.curves.spine?.x?.(gt) ?? 0) * 0.6;
+      if (fallbackHead) {
+        fallbackHead.rotation.x += hc.x?.(gt) ?? 0;
+        fallbackHead.rotation.y += hc.y?.(gt) ?? 0;
+        fallbackHead.rotation.z += hc.z?.(gt) ?? 0;
+      }
+    }
   }
 }
 
