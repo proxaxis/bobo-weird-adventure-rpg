@@ -97,6 +97,12 @@ export class FieldScene extends Phaser.Scene {
   preload() {
     this.load.tilemapTiledJSON('field', '/maps/field.tmj');
     this.load.image('tiles', '/maps/tiles.png');
+    // 128x128 ドット絵スプライト（tools/gen_sprites.py 生成）
+    this.load.image('spr-player', '/sprites/player.png');
+    this.load.image('spr-peer', '/sprites/peer.png');
+    this.load.image('spr-creature', '/sprites/creature.png');
+    this.load.image('spr-npc-yui', '/sprites/npc-yui.png');
+    this.load.image('spr-npc-nagi', '/sprites/npc-nagi.png');
   }
 
   /**
@@ -144,7 +150,8 @@ export class FieldScene extends Phaser.Scene {
    * @returns {void}
    */
   #createPlayer() {
-    this.player = this.physics.add.sprite(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 'tex-player');
+    this.player = this.physics.add.sprite(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 'spr-player');
+    this.player.setScale(0.4);
     this.player.setCollideWorldBounds(true);
     if (this.obstacleLayer) {
       this.physics.add.collider(this.player, this.obstacleLayer);
@@ -169,7 +176,8 @@ export class FieldScene extends Phaser.Scene {
    */
   #createNpcs() {
     for (const def of NPC_DEFS) {
-      const sprite = this.add.sprite(def.x, def.y, 'tex-npc');
+      const sprite = this.add.sprite(def.x, def.y, def.texture);
+      sprite.setScale(0.4);
       sprite.setData('npc', def);
       this.tweens.add({
         targets: sprite,
@@ -284,7 +292,8 @@ export class FieldScene extends Phaser.Scene {
     this.onPeerPosition = (/** @type {import('@/types.js').PeerPosition} */ p) => {
       let sprite = this.peerSprites.get(p.peerId);
       if (!sprite) {
-        sprite = this.add.sprite(p.x, p.y, 'tex-peer');
+        sprite = this.add.sprite(p.x, p.y, 'spr-peer');
+        sprite.setScale(0.4);
         this.peerSprites.set(p.peerId, sprite);
       } else {
         sprite.setPosition(p.x, p.y);
@@ -562,7 +571,8 @@ export class FieldScene extends Phaser.Scene {
     const def = NPC_DEFS.find((n) => n.id === npcId);
     const x = def?.x ?? this.player.x + 40;
     const y = def?.y ?? this.player.y;
-    this.companion = new Companion(this, { id: npcId, name }, x, y);
+    const texture = def?.texture ?? 'spr-npc-yui';
+    this.companion = new Companion(this, { id: npcId, name }, x, y, texture);
     if (this.obstacleLayer) {
       this.physics.add.collider(this.companion.sprite, this.obstacleLayer);
     }

@@ -20,12 +20,14 @@ export class Companion {
    * @param {{id: string, name: string}} npc
    * @param {number} x
    * @param {number} y
+   * @param {string} [texture]
    */
-  constructor(scene, npc, x, y) {
+  constructor(scene, npc, x, y, texture = 'spr-npc-yui') {
     this.scene = scene;
     this.npc = npc;
     /** @type {Phaser.Physics.Arcade.Sprite} */
-    this.sprite = scene.physics.add.sprite(x, y, 'tex-npc');
+    this.sprite = scene.physics.add.sprite(x, y, texture);
+    this.sprite.setScale(0.4);
     this.sprite.setTint(0xaef7e4);
     this.label = scene.add
       .text(x, y - 30, `${npc.name}（仲間）`, { color: '#aef7e4', fontSize: '11px' })

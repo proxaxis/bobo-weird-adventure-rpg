@@ -24,7 +24,8 @@ export class Creature {
   constructor(scene, x, y) {
     this.scene = scene;
     /** @type {Phaser.Physics.Arcade.Sprite} */
-    this.sprite = scene.physics.add.sprite(x, y, 'tex-creature');
+    this.sprite = scene.physics.add.sprite(x, y, 'spr-creature');
+    this.sprite.setScale(0.45);
     this.sprite.setData('creature', this);
     this.hp = CREATURE_HP;
     this.lastAttackAt = 0;
