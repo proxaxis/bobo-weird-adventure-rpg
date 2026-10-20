@@ -484,14 +484,6 @@ export class FieldScene extends Phaser.Scene {
       const sprite = this.add.sprite(x, y, def.texture);
       sprite.setScale(0.4);
       sprite.setData('npc', def);
-      this.tweens.add({
-        targets: sprite,
-        y: y - 6,
-        duration: 1200,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Sine.easeInOut',
-      });
       const label = this.add
         .text(x, y - 30, store.isKnown(def.id) ? def.name : '？？？', {
           color: '#ffb7d5',
@@ -1219,8 +1211,10 @@ export class FieldScene extends Phaser.Scene {
       return;
     }
     const dt = Math.max((now - s.lastT) / 1000, 0.05);
-    s.vx = (x - s.tx) / dt;
-    s.vy = (y - s.ty) / dt;
+    // EMA平滑化でサンプルごとの速度ぶれを抑える
+    const a = 0.35;
+    s.vx = s.vx * (1 - a) + ((x - s.tx) / dt) * a;
+    s.vy = s.vy * (1 - a) + ((y - s.ty) / dt) * a;
     s.tx = x;
     s.ty = y;
     s.lastT = now;
@@ -1234,16 +1228,21 @@ export class FieldScene extends Phaser.Scene {
    * @returns {void}
    */
   #updateInterpolation(dt) {
-    const moveTo = (/** @type {Phaser.GameObjects.Sprite} */ s, /** @type {{tx:number,ty:number,vx:number,vy:number}} */ t) => {
-      const dx = t.tx - s.x;
-      const dy = t.ty - s.y;
+    const now = this.time.now;
+    const moveTo = (/** @type {Phaser.GameObjects.Sprite} */ s, /** @type {{tx:number,ty:number,vx:number,vy:number,lastT:number}} */ t) => {
+      // デッドレコニング: 推定速度で目標を外挿し、更新間も動き続ける
+      const elapsed = Math.min((now - t.lastT) / 1000, 1.5);
+      const ex = t.tx + t.vx * elapsed;
+      const ey = t.ty + t.vy * elapsed;
+      const dx = ex - s.x;
+      const dy = ey - s.y;
       const dist = Math.hypot(dx, dy);
-      if (dist > 300 || dist < 0.4) {
-        s.setPosition(t.tx, t.ty);
+      if (dist > 300) {
+        s.setPosition(t.tx, t.ty); // テレポート判定（外挿ではなく実値へ）
         return;
       }
-      // 推定速度×1.2（追いつき補正）で定速移動
-      const speed = Math.max(Math.hypot(t.vx, t.vy) * 1.2, 30);
+      if (dist < 0.4) return;
+      const speed = Math.max(Math.hypot(t.vx, t.vy) * 1.15, 20);
       const step = Math.min(dist, speed * dt);
       s.setPosition(s.x + (dx / dist) * step, s.y + (dy / dist) * step);
     };
