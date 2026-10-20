@@ -36,6 +36,15 @@ memory = MemoryStore(DATA_DIR)
 
 _FILLER_RE = re.compile(r"^(…|あの|えっと|えーと|うーん|その)")
 
+# 中国語混入の検出（日本語文では使わない文字）
+_CN_CERTAIN = re.compile(r"[吗呢吧哪]")
+_CN_SUSPECT = re.compile(r"[了吗呢吧哪是]")
+
+
+def _is_chinese_line(text: str) -> bool:
+    """行が中国語混入と見なせるか。"""
+    return bool(_CN_CERTAIN.search(text)) or len(_CN_SUSPECT.findall(text)) >= 2
+
 # 嗜好パラメータ(index)→話題検索クエリ。P_INDEX.PRF_TOPIC_* と同期。
 _PREF_TOPIC_QUERIES = {
     400: "自然 癒し 話題",
