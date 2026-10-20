@@ -159,9 +159,9 @@ export class FieldScene extends Phaser.Scene {
     // リモートエンティティ描画（他クライアントのchunk所有エンティティ）
     /** @type {Map<string, Phaser.GameObjects.Sprite>} */
     this.remoteEntities = new Map();
-    /** @type {Map<string, {x: number, y: number}>} 補完用の目標座標 */
+    /** @type {Map<string, {sx:number, sy:number, tx:number, ty:number, vx:number, vy:number, lastT:number}>} 補完状態（目標+推定速度） */
     this.remoteTargets = new Map();
-    /** @type {Map<string, {x: number, y: number}>} ピアの目標座標 */
+    /** @type {Map<string, {sx:number, sy:number, tx:number, ty:number, vx:number, vy:number, lastT:number}>} ピア補完状態 */
     this.peerTargets = new Map();
     this.entityTimer = 0;
     /** リモート拠点ブロック用の静的衝突グループ */
@@ -595,7 +595,7 @@ export class FieldScene extends Phaser.Scene {
         this.peerSprites.set(p.peerId, sprite);
       }
       // 実座標は目標として保持し、update で補完する
-      this.peerTargets.set(p.peerId, { x: p.x, y: p.y });
+      this.#pushTarget(this.peerTargets, p.peerId, p.x, p.y);
     };
     this.onPeerStatus = (/** @type {import('@/types.js').PeerStatus} */ s) => {
       if (s.state === 'left') {
@@ -784,7 +784,7 @@ export class FieldScene extends Phaser.Scene {
       } else if (e.type === 'base') {
         /** @type {any} */ (s).setData('meta', e.meta ?? {});
       }
-      this.remoteTargets.set(key, { x: e.x, y: e.y });
+      this.#pushTarget(this.remoteTargets, key, e.x, e.y);
     }
     // 消えたエンティティを破棄
     for (const [key, s] of this.remoteEntities) {
@@ -1139,7 +1139,7 @@ export class FieldScene extends Phaser.Scene {
     this.#updatePrompt();
     this.#updateCreatures(time);
     this.#updateCompanion(time);
-    this.#updateNpcs(time);
+    this.#updateNpcs(time, dt);
     this.#updateInterpolation(dt);
 
     // マップ再描画は遅延バッチ（移動中はテクスチャ端接近時のみ即時更新）
@@ -1203,31 +1203,59 @@ export class FieldScene extends Phaser.Scene {
   }
 
   /**
-   * リモートスプライトを目標座標へ指数補完する。
+   * ネットワークサンプルを補完状態へ反映する。
+   * 連続2サンプルから平均速度を推定し、定速補間に使う。
+   * @param {Map<string, {sx:number,sy:number,tx:number,ty:number,vx:number,vy:number,lastT:number}>} map
+   * @param {string} key
+   * @param {number} x
+   * @param {number} y
+   * @returns {void}
+   */
+  #pushTarget(map, key, x, y) {
+    const now = this.time.now;
+    const s = map.get(key);
+    if (!s) {
+      map.set(key, { sx: x, sy: y, tx: x, ty: y, vx: 0, vy: 0, lastT: now });
+      return;
+    }
+    const dt = Math.max((now - s.lastT) / 1000, 0.05);
+    s.vx = (x - s.tx) / dt;
+    s.vy = (y - s.ty) / dt;
+    s.tx = x;
+    s.ty = y;
+    s.lastT = now;
+  }
+
+  /**
+   * リモートスプライトを推定速度の定速移動で補完する。
+   * 更新間隔が粗くても平均速度で動き続けるため自然に見える。
    * 距離が大きすぎる場合は瞬時移動（テレポート扱い）。
    * @param {number} dt - 秒
    * @returns {void}
    */
   #updateInterpolation(dt) {
-    const k = 1 - Math.exp(-dt * 10); // 収束レート 10/s
-    const lerpTo = (/** @type {Phaser.GameObjects.Sprite} */ s, /** @type {{x:number,y:number}} */ t) => {
-      const dx = t.x - s.x;
-      const dy = t.y - s.y;
+    const moveTo = (/** @type {Phaser.GameObjects.Sprite} */ s, /** @type {{tx:number,ty:number,vx:number,vy:number}} */ t) => {
+      const dx = t.tx - s.x;
+      const dy = t.ty - s.y;
       const dist = Math.hypot(dx, dy);
-      if (dist > 300 || dist < 0.5) {
-        s.setPosition(t.x, t.y);
-      } else {
-        s.x += dx * k;
-        s.y += dy * k;
+      if (dist > 300 || dist < 0.4) {
+        s.setPosition(t.tx, t.ty);
+        return;
       }
+      // 推定速度×1.2（追いつき補正）で定速移動
+      const speed = Math.max(Math.hypot(t.vx, t.vy) * 1.2, 30);
+      const step = Math.min(dist, speed * dt);
+      s.setPosition(s.x + (dx / dist) * step, s.y + (dy / dist) * step);
     };
     for (const [id, sprite] of this.peerSprites) {
       const t = this.peerTargets.get(id);
-      if (t && sprite.active) lerpTo(sprite, t);
+      if (t && sprite.active) moveTo(sprite, t);
     }
     for (const [key, sprite] of this.remoteEntities) {
       const t = this.remoteTargets.get(key);
-      if (t && sprite.active) lerpTo(sprite, t);
+      if (t && sprite.active && !(sprite instanceof Phaser.Physics.Arcade.Sprite)) {
+        moveTo(sprite, t);
+      }
     }
   }
 
@@ -1260,7 +1288,7 @@ export class FieldScene extends Phaser.Scene {
    * @param {number} time
    * @returns {void}
    */
-  #updateNpcs(time) {
+  #updateNpcs(time, dt) {
     const companion = useCompanionStore();
     for (const [npcId, st] of this.npcStates) {
       // NPC個別の信頼度（対話差分で蓄積）
@@ -1283,7 +1311,7 @@ export class FieldScene extends Phaser.Scene {
           st.ty = st.homeY + Phaser.Math.Between(-NPC_WANDER_RADIUS, NPC_WANDER_RADIUS);
         }
       } else {
-        const step = NPC_WANDER_SPEED / 60;
+        const step = NPC_WANDER_SPEED * dt;
         s.x += (dx / dist) * Math.min(step, dist);
         s.y += (dy / dist) * Math.min(step, dist);
       }
