@@ -237,14 +237,58 @@ export class FieldScene extends Phaser.Scene {
   }
 
   /**
-   * 現在タイルを中心に RENDER_TILES×RENDER_TILES を再描画する。
-   * @param {boolean} [force]
+   * 1タイル分だけ描画する共通処理。
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} tx - ワールドタイルx
+   * @param {number} ty - ワールドタイルy
+   * @param {number} x0 - キャンバス左上のタイルx
+   * @param {number} y0 - キャンバス左上のタイルy
    * @returns {void}
    */
-  #redrawMap(force = false) {
+  #drawMapTile(ctx, tx, ty, x0, y0) {
+    const px = (tx - x0) * TILE;
+    const py = (ty - y0) * TILE;
+    const b = biomeAt(tx * TILE + TILE / 2, ty * TILE + TILE / 2, WORLD_SEED);
+    ctx.fillStyle = b.obstacle ? OBSTACLE_COLOR : GROUND_COLORS[b.ground];
+    ctx.fillRect(px, py, TILE, TILE);
+    if (b.toxic) {
+      ctx.fillStyle = TOXIC_OVERLAY;
+      ctx.fillRect(px, py, TILE, TILE);
+    }
+  }
+
+  /**
+   * キャンバス全領域を描画する（初期化・大幅移動時）。
+   * @param {number} cTx
+   * @param {number} cTy
+   * @returns {void}
+   */
+  #fillMap(cTx, cTy) {
+    const ctx = this.mapCtx;
+    if (!ctx) return;
+    const half = Math.floor(RENDER_TILES / 2);
+    const x0 = cTx - half;
+    const y0 = cTy - half;
+    for (let ty = y0; ty < y0 + RENDER_TILES; ty++) {
+      for (let tx = x0; tx < x0 + RENDER_TILES; tx++) {
+        this.#drawMapTile(ctx, tx, ty, x0, y0);
+      }
+    }
+  }
+
+  /**
+   * 差分スクロール更新。
+   * タイル境界を跨いだ分だけキャンバス内容をずらし、新たに露出する
+   * 列/行だけ塗る。全再描画の1/70程度のコストで背景が常に世界座標と
+   * 同期する（ブロック・エンティティと動きが一致する）。
+   * @returns {void}
+   */
+  #redrawMap() {
     const cTx = Math.floor(this.player.x / TILE);
     const cTy = Math.floor(this.player.y / TILE);
-    if (!force && cTx === this.mapTileX && cTy === this.mapTileY) return;
+    if (cTx === this.mapTileX && cTy === this.mapTileY) return;
+    const dx = cTx - this.mapTileX;
+    const dy = cTy - this.mapTileY;
     this.mapTileX = cTx;
     this.mapTileY = cTy;
     const ctx = this.mapCtx;
@@ -253,46 +297,36 @@ export class FieldScene extends Phaser.Scene {
     const half = Math.floor(RENDER_TILES / 2);
     const x0 = cTx - half;
     const y0 = cTy - half;
-    for (let ty = y0; ty < y0 + RENDER_TILES; ty++) {
-      for (let tx = x0; tx < x0 + RENDER_TILES; tx++) {
-        const px = (tx - x0) * TILE;
-        const py = (ty - y0) * TILE;
-        const b = biomeAt(tx * TILE + TILE / 2, ty * TILE + TILE / 2, WORLD_SEED);
-        ctx.fillStyle = b.obstacle
-          ? OBSTACLE_COLOR
-          : GROUND_COLORS[b.ground];
-        ctx.fillRect(px, py, TILE, TILE);
-        if (b.toxic) {
-          ctx.fillStyle = TOXIC_OVERLAY;
-          ctx.fillRect(px, py, TILE, TILE);
+    const x1 = x0 + RENDER_TILES - 1;
+    const y1 = y0 + RENDER_TILES - 1;
+    if (Math.abs(dx) >= RENDER_TILES || Math.abs(dy) >= RENDER_TILES) {
+      this.#fillMap(cTx, cTy);
+    } else {
+      // 既存コンテンツを -dx,-dy タイル分ずらす
+      ctx.drawImage(this.mapTex.canvas, -dx * TILE, -dy * TILE);
+      // 新たに露出した列（左右）
+      if (dx > 0) {
+        for (let tx = x1 - dx + 1; tx <= x1; tx++) {
+          for (let ty = y0; ty <= y1; ty++) this.#drawMapTile(ctx, tx, ty, x0, y0);
+        }
+      } else if (dx < 0) {
+        for (let tx = x0; tx <= x0 - dx - 1; tx++) {
+          for (let ty = y0; ty <= y1; ty++) this.#drawMapTile(ctx, tx, ty, x0, y0);
+        }
+      }
+      // 新たに露出した行（上下、角は重複描画でよい）
+      if (dy > 0) {
+        for (let ty = y1 - dy + 1; ty <= y1; ty++) {
+          for (let tx = x0; tx <= x1; tx++) this.#drawMapTile(ctx, tx, ty, x0, y0);
+        }
+      } else if (dy < 0) {
+        for (let ty = y0; ty <= y0 - dy - 1; ty++) {
+          for (let tx = x0; tx <= x1; tx++) this.#drawMapTile(ctx, tx, ty, x0, y0);
         }
       }
     }
     this.mapTex.refresh();
     this.mapImage.setPosition(cTx * TILE + TILE / 2, cTy * TILE + TILE / 2);
-  }
-
-  /**
-   * マップ再描画の遅延バッチ。
-   * - タイルを跨ぐたびに即時再描画せず、300ms 経過か
-   *   8タイル以上移動（テクスチャ端接近）のどちらかでまとめて更新する。
-   * @param {number} delta - ms
-   * @returns {void}
-   */
-  #scheduleRedraw(delta) {
-    const cTx = Math.floor(this.player.x / TILE);
-    const cTy = Math.floor(this.player.y / TILE);
-    if (cTx === this.mapTileX && cTy === this.mapTileY) {
-      this.mapRedrawDelay = Math.max(0, this.mapRedrawDelay - delta);
-      return;
-    }
-    this.mapRedrawDelay += delta;
-    const movedFar =
-      Math.abs(cTx - this.mapTileX) >= 8 || Math.abs(cTy - this.mapTileY) >= 8;
-    if (movedFar || this.mapRedrawDelay >= 300) {
-      this.mapRedrawDelay = 0;
-      this.#redrawMap(true);
-    }
   }
 
   /**
@@ -316,7 +350,16 @@ export class FieldScene extends Phaser.Scene {
     this.player = this.physics.add.sprite(this.spawnX, this.spawnY, 'spr-player');
     this.player.setScale(0.4);
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
-    this.#redrawMap(true);
+    this.mapTileX = Math.floor(this.player.x / TILE);
+    this.mapTileY = Math.floor(this.player.y / TILE);
+    this.#fillMap(this.mapTileX, this.mapTileY);
+    if (this.mapTex && this.mapImage) {
+      this.mapTex.refresh();
+      this.mapImage.setPosition(
+        this.mapTileX * TILE + TILE / 2,
+        this.mapTileY * TILE + TILE / 2,
+      );
+    }
   }
 
   // ------------------------------------------------------------------
@@ -1134,8 +1177,8 @@ export class FieldScene extends Phaser.Scene {
     this.#updateNpcs(time, dt);
     this.#updateInterpolation(dt);
 
-    // マップ再描画は遅延バッチ（移動中はテクスチャ端接近時のみ即時更新）
-    this.#scheduleRedraw(delta);
+    // 背景はタイル跨ぎごとに差分スクロール（常時世界座標と同期）
+    this.#redrawMap();
 
     // チャンク移動でボイドを更新
     const ccx = Math.floor(this.player.x / CHUNK_SIZE);
@@ -1285,6 +1328,7 @@ export class FieldScene extends Phaser.Scene {
   /**
    * NPC 徘徊: ホーム周辺ランダム散策 + 高信頼時はプレイヤーへ寄る。
    * @param {number} time
+   * @param {number} dt - 秒
    * @returns {void}
    */
   #updateNpcs(time, dt) {
