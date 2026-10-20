@@ -22,6 +22,7 @@ from .memory import MemoryStore
 from .prompt import build_messages
 from .schemas import DialogRequest
 from .search import search_topics
+from .tools import TOOLS, validate
 
 app = FastAPI(title="bobo-weird-adventure-rpg AI server")
 app.add_middleware(
@@ -109,6 +110,8 @@ def _parse_line(line: str) -> dict | None:
     }
     if m in MOTION_PRESETS:
         out["m"] = m
+    if chunk.get("x") in TOOLS:
+        out["x"] = chunk["x"]
     return out
 
 
@@ -155,6 +158,9 @@ async def _stream(req: DialogRequest) -> AsyncGenerator[str, None]:
             chunk["u"] = chunk["u"] + heur
             first_chunk = False
         out += _line(chunk)
+        # ツール呼出し: 受理条件を満たす場合のみ制御チャンクを発行
+        if "x" in chunk and validate(chunk["x"], req.parameters):
+            out += _line({"x": chunk["x"], "t": "", "e": "neutral", "u": []})
         return out, chunk["t"]
 
     try:

@@ -24,6 +24,7 @@ import {
   voidRespawn,
 } from '@/game/worldSeed.js';
 import { p2pSession } from '@/net/p2pSync.js';
+import { useCompanionStore } from '@/stores/companionStore.js';
 import { usePeerStore } from '@/stores/peerStore.js';
 
 const TILE = 32;
@@ -74,6 +75,8 @@ export class FieldScene extends Phaser.Scene {
     this.companion = null;
     /** @type {Map<string, Phaser.GameObjects.Sprite>} */
     this.peerSprites = new Map();
+    /** @type {Map<string, Phaser.GameObjects.Text>} NPC名ラベル（名乗るまで「？？？」） */
+    this.npcLabels = new Map();
     /** @type {any} Phaser4 では createLayer が GPULayer を返し得るため any */
     this.obstacleLayer = null;
 
@@ -176,9 +179,13 @@ export class FieldScene extends Phaser.Scene {
         repeat: -1,
         ease: 'Sine.easeInOut',
       });
-      this.add
-        .text(def.x, def.y - 30, def.name, { color: '#ffb7d5', fontSize: '12px' })
+      const label = this.add
+        .text(def.x, def.y - 30, useCompanionStore().isKnown(def.id) ? def.name : '？？？', {
+          color: '#ffb7d5',
+          fontSize: '12px',
+        })
         .setOrigin(0.5);
+      this.npcLabels.set(def.id, label);
     }
   }
 
@@ -310,6 +317,11 @@ export class FieldScene extends Phaser.Scene {
       /** @type {import('@/types.js').CompanionJoinPayload} */ p,
     ) => this.#spawnCompanion(p.npcId, p.name);
     this.onCompanionLeave = () => this.#despawnCompanion();
+    this.onNameRevealed = (
+      /** @type {import('@/types.js').CompanionJoinPayload} */ p,
+    ) => {
+      this.npcLabels.get(p.npcId)?.setText(p.name);
+    };
 
     const E = GAME_EVENTS;
     eventBus.on(E.PEER_POSITION, this.onPeerPosition);
@@ -319,6 +331,7 @@ export class FieldScene extends Phaser.Scene {
     eventBus.on(E.PEER_STOLEN, this.onPeerStolen);
     eventBus.on(E.COMPANION_JOIN, this.onCompanionJoin);
     eventBus.on(E.COMPANION_LEAVE, this.onCompanionLeave);
+    eventBus.on(E.NPC_NAME_REVEALED, this.onNameRevealed);
 
     this.events.once('shutdown', () => {
       eventBus.off(E.PEER_POSITION, this.onPeerPosition);
@@ -328,6 +341,7 @@ export class FieldScene extends Phaser.Scene {
       eventBus.off(E.PEER_STOLEN, this.onPeerStolen);
       eventBus.off(E.COMPANION_JOIN, this.onCompanionJoin);
       eventBus.off(E.COMPANION_LEAVE, this.onCompanionLeave);
+      eventBus.off(E.NPC_NAME_REVEALED, this.onNameRevealed);
       this.peerSprites.clear();
       this.creatures.forEach((c) => c.destroy());
       this.companion?.destroy();

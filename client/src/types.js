@@ -27,6 +27,7 @@
  * @property {ExpressionPreset} [e] - 表情プリセット
  * @property {MotionPreset} [m] - 身振りプリセット
  * @property {ParameterDiff[]} [u] - パラメータ差分配列
+ * @property {string} [x] - ツール呼出し（例: 'join_companion'。サーバ受理済みのみ届く）
  */
 
 /**
@@ -147,6 +148,7 @@
  *   'peer:attack': PeerAttack,
  *   'peer:stolen': PeerStolen,
  *   'player:death': PlayerDeath,
+ *   'npc:name-revealed': CompanionJoinPayload,
  * }} GameEventMap
  */
 

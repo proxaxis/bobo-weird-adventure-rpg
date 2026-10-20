@@ -5,12 +5,13 @@
  */
 
 import { defineStore } from 'pinia';
-import { ref, shallowRef } from 'vue';
+import { computed, ref, shallowRef } from 'vue';
 
 import { eventBus } from '@/core/eventBus.js';
 import { GAME_EVENTS } from '@/core/events.js';
 import { motionForExpression } from '@/dialog/motions.js';
 import { streamDialogChunks } from '@/net/aiClient.js';
+import { useCompanionStore } from '@/stores/companionStore.js';
 import { useParameterStore } from '@/stores/parameterStore.js';
 import { usePlayerStore } from '@/stores/playerStore.js';
 
@@ -21,8 +22,14 @@ export const useDialogStore = defineStore('dialog', () => {
   /** 対話相手の NPC 識別子。 */
   const npcId = shallowRef('');
 
-  /** 対話相手の表示名。 */
+  /** 対話相手の表示名（内部値）。 */
   const npcName = shallowRef('');
+
+  /** 相手が名乗ったか。false の間は「？？？」と表示する。 */
+  const npcKnown = ref(false);
+
+  /** UI 表示名。名乗るまで匿名。 */
+  const displayName = computed(() => (npcKnown.value ? npcName.value : '？？？'));
 
   /** 相手の VRM モデル URL。 */
   const vrmModelUrl = shallowRef('');
@@ -69,8 +76,14 @@ export const useDialogStore = defineStore('dialog', () => {
     npcId.value = payload.npcId;
     npcName.value = payload.name;
     vrmModelUrl.value = payload.vrmModelUrl;
+    npcKnown.value = useCompanionStore().isKnown(payload.npcId);
     messages.value = [
-      { role: 'system', text: `${payload.name} と遭遇した。` },
+      {
+        role: 'system',
+        text: npcKnown.value
+          ? `${payload.name} と遭遇した。`
+          : '名も知らぬ少女と遭遇した。',
+      },
     ];
     expression.value = 'neutral';
     isOpen.value = true;
@@ -100,6 +113,7 @@ export const useDialogStore = defineStore('dialog', () => {
 
     const parameters = useParameterStore();
     const player = usePlayerStore();
+    const companion = useCompanionStore();
 
     messages.value.push({ role: 'player', text: trimmed });
     /** @type {import('@/types.js').ChatMessage} */
@@ -129,6 +143,19 @@ export const useDialogStore = defineStore('dialog', () => {
           motionSeq.value++;
         }
         if (chunk.u?.length) parameters.applyDiffs(chunk.u);
+        // ツール呼出し（サーバで検証済みのみ届く）
+        if (chunk.x === 'reveal_name') {
+          companion.markKnown({ npcId: npcId.value, name: npcName.value });
+          npcKnown.value = true;
+        }
+        if (chunk.x === 'join_companion') {
+          companion.join({ npcId: npcId.value, name: npcName.value });
+          npcKnown.value = true;
+          messages.value.push({
+            role: 'system',
+            text: `${npcName.value} が仲間になった！`,
+          });
+        }
         if (chunk.t) {
           reply.text += chunk.t;
           speechText.value = chunk.t;
@@ -149,6 +176,8 @@ export const useDialogStore = defineStore('dialog', () => {
     isOpen,
     npcId,
     npcName,
+    npcKnown,
+    displayName,
     vrmModelUrl,
     messages,
     isStreaming,

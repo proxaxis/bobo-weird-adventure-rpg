@@ -4,30 +4,13 @@
  * 左: VrmCanvas（3Dアバター）、下部: 会話ログ + 入力。
  * ui-layer は pointer-events:none なので本パネルのみ auto を指定する。
  */
-import { computed, nextTick, ref, watch } from 'vue';
+import { nextTick, ref, watch } from 'vue';
 
 import VrmCanvas from '@/dialog/VrmCanvas.vue';
-import { P_INDEX } from '@/constants/parameters.js';
-import {
-  COMPANION_TRUST_THRESHOLD,
-  useCompanionStore,
-} from '@/stores/companionStore.js';
 import { useDialogStore } from '@/stores/dialogStore.js';
-import { useParameterStore } from '@/stores/parameterStore.js';
 
 const dialog = useDialogStore();
-const companion = useCompanionStore();
-const parameters = useParameterStore();
 const inputText = ref('');
-
-// 仲間化可否（revision を読んで追従させる）
-const trust = computed(() => {
-  void parameters.revision;
-  return parameters.get(P_INDEX.TRUST_PLAYER);
-});
-const canRecruit = computed(
-  () => trust.value >= COMPANION_TRUST_THRESHOLD && !companion.isCompanion,
-);
 const logEl = ref(null);
 /** @type {import('vue').Ref<InstanceType<typeof VrmCanvas> | null>} */
 const vrmRef = ref(null);
@@ -66,26 +49,6 @@ function onSubmit() {
   inputText.value = '';
   void dialog.send(text);
 }
-
-/**
- * 仲間に誘う。信頼度不足ならシステムメッセージで通知する。
- * @returns {void}
- */
-function onRecruit() {
-  if (!canRecruit.value) {
-    dialog.messages.push({
-      role: 'system',
-      text: 'まだ仲間に誘えない。もっと話して信頼を深めよう。',
-    });
-    return;
-  }
-  companion.join({ npcId: dialog.npcId, name: dialog.npcName });
-  dialog.messages.push({
-    role: 'system',
-    text: `${dialog.npcName} が仲間になった！`,
-  });
-  dialog.close();
-}
 </script>
 
 <template>
@@ -103,21 +66,10 @@ function onRecruit() {
 
       <div class="chat-area">
         <header class="chat-header">
-          <span class="npc-name">{{ dialog.npcName }}</span>
-          <div class="header-actions">
-            <button
-              class="recruit-btn"
-              type="button"
-              :disabled="!canRecruit"
-              :title="canRecruit ? '仲間に誘う' : '信頼度 60% 必要'"
-              @click="onRecruit"
-            >
-              仲間に誘う
-            </button>
-            <button class="close-btn" type="button" @click="dialog.close()">
-              × 閉じる
-            </button>
-          </div>
+          <span class="npc-name">{{ dialog.displayName }}</span>
+          <button class="close-btn" type="button" @click="dialog.close()">
+            × 閉じる
+          </button>
         </header>
 
         <div ref="logEl" class="chat-log">
@@ -128,7 +80,7 @@ function onRecruit() {
             :class="m.role"
           >
             <span class="role">{{
-              m.role === 'player' ? 'あなた' : m.role === 'npc' ? dialog.npcName : ''
+              m.role === 'player' ? 'あなた' : m.role === 'npc' ? dialog.displayName : ''
             }}</span>
             <span class="text">{{ m.text }}<span v-if="m.streaming" class="caret">▌</span></span>
           </div>
@@ -138,7 +90,7 @@ function onRecruit() {
           <input
             v-model="inputText"
             type="text"
-            :placeholder="`${dialog.npcName} に話しかける…`"
+            :placeholder="`${dialog.displayName} に話しかける…`"
             :disabled="dialog.isStreaming"
             autofocus
           />
@@ -205,31 +157,6 @@ function onRecruit() {
   font-size: 16px;
   font-weight: 600;
   color: #ffb7d5;
-}
-
-.header-actions {
-  display: flex;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.recruit-btn {
-  background: rgba(174, 247, 228, 0.12);
-  border: 1px solid rgba(174, 247, 228, 0.5);
-  color: #aef7e4;
-  border-radius: 4px;
-  padding: 4px 12px;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.recruit-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.recruit-btn:not(:disabled):hover {
-  background: rgba(174, 247, 228, 0.25);
 }
 
 .close-btn {
