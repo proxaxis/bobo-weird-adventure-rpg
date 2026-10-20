@@ -116,6 +116,8 @@ export class FieldScene extends Phaser.Scene {
     this.mapImage = null;
     this.mapTileX = NaN;
     this.mapTileY = NaN;
+    /** 再描画の遅延タイマ（ms累積） */
+    this.mapRedrawDelay = 0;
 
     // ワールド状態
     this.spawnX = 0;
@@ -268,6 +270,29 @@ export class FieldScene extends Phaser.Scene {
     }
     this.mapTex.refresh();
     this.mapImage.setPosition(cTx * TILE + TILE / 2, cTy * TILE + TILE / 2);
+  }
+
+  /**
+   * マップ再描画の遅延バッチ。
+   * - タイルを跨ぐたびに即時再描画せず、300ms 経過か
+   *   8タイル以上移動（テクスチャ端接近）のどちらかでまとめて更新する。
+   * @param {number} delta - ms
+   * @returns {void}
+   */
+  #scheduleRedraw(delta) {
+    const cTx = Math.floor(this.player.x / TILE);
+    const cTy = Math.floor(this.player.y / TILE);
+    if (cTx === this.mapTileX && cTy === this.mapTileY) {
+      this.mapRedrawDelay = Math.max(0, this.mapRedrawDelay - delta);
+      return;
+    }
+    this.mapRedrawDelay += delta;
+    const movedFar =
+      Math.abs(cTx - this.mapTileX) >= 8 || Math.abs(cTy - this.mapTileY) >= 8;
+    if (movedFar || this.mapRedrawDelay >= 300) {
+      this.mapRedrawDelay = 0;
+      this.#redrawMap(true);
+    }
   }
 
   /**
@@ -1117,8 +1142,8 @@ export class FieldScene extends Phaser.Scene {
     this.#updateNpcs(time);
     this.#updateInterpolation(dt);
 
-    // プレイヤーがタイル境界を跨いだらマップ再描画
-    this.#redrawMap();
+    // マップ再描画は遅延バッチ（移動中はテクスチャ端接近時のみ即時更新）
+    this.#scheduleRedraw(delta);
 
     // チャンク移動でボイドを更新
     const ccx = Math.floor(this.player.x / CHUNK_SIZE);
