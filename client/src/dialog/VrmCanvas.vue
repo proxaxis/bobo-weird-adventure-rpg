@@ -168,11 +168,22 @@ async function loadModel(url) {
 function frameCameraTo(object) {
   if (!camera) return;
   const box = new THREE.Box3().setFromObject(object);
-  const height = Math.max(box.max.y - box.min.y, 0.5);
-  const headY = box.max.y - height * 0.12;
-  camera.position.set(0, headY + height * 0.04, height * 0.55);
-  camera.lookAt(0, headY - height * 0.02, 0);
-  if (lookTarget) lookTarget.position.set(0, headY, 1.2);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const height = Math.max(size.y, 0.5);
+  // 身長の62%（頭〜胸あたり）を縦方向に収める距離をfovから計算
+  const fitHeight = height * 0.62;
+  const fovRad = THREE.MathUtils.degToRad(camera.fov);
+  const dist = Math.max(
+    (fitHeight * 0.5) / Math.tan(fovRad / 2),
+    height * 0.4,
+  );
+  const focusY = box.max.y - height * 0.2;
+  camera.position.set(center.x, focusY, center.z + dist);
+  camera.lookAt(center.x, focusY, center.z);
+  if (lookTarget) {
+    lookTarget.position.set(center.x, focusY, center.z + dist);
+  }
 }
 
 /**
