@@ -205,7 +205,7 @@ export class FieldScene extends Phaser.Scene {
     this.physics.add.collider(this.player, this.remoteBaseGroup, undefined,
       (_p, block) => {
         const meta = /** @type {any} */ (
-          /** @type {Phaser.Physics.Arcade.Sprite} */ (block).getData('meta') ?? {},
+          /** @type {Phaser.Physics.Arcade.Sprite} */ (block).getData('meta') ?? {}
         );
         return !(meta.door === true && (meta.permitted ?? []).includes(myId));
       });
@@ -752,7 +752,7 @@ export class FieldScene extends Phaser.Scene {
   /**
    * 他クライアント所有チャンクのエンティティをスプライト描画する。
    * @param {string} chunkKey
-   * @param {Array<{id: string, type: string, x: number, y: number}>} entities
+   * @param {Array<{id: string, type: string, x: number, y: number, meta?: object}>} entities
    * @returns {void}
    */
   #syncRemoteEntities(chunkKey, entities) {
