@@ -62,6 +62,12 @@ function onSubmit() {
           :thinking="dialog.isThinking"
         />
         <div v-if="dialog.isThinking" class="thinking-badge">考え中…</div>
+        <img
+          class="player-portrait"
+          src="/sprites/player.png"
+          alt="あなた"
+          title="あなた"
+        />
       </div>
 
       <div class="chat-area">
@@ -79,6 +85,12 @@ function onSubmit() {
             class="msg"
             :class="m.role"
           >
+            <img
+              v-if="m.role === 'player'"
+              class="msg-avatar"
+              src="/sprites/player.png"
+              alt=""
+            />
             <span class="role">{{
               m.role === 'player' ? 'あなた' : m.role === 'npc' ? dialog.displayName : ''
             }}</span>
@@ -124,6 +136,26 @@ function onSubmit() {
 .avatar-area {
   position: relative;
   min-width: 0;
+}
+
+.player-portrait {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  width: 88px;
+  height: 88px;
+  image-rendering: pixelated;
+  border: 1px solid rgba(159, 230, 255, 0.4);
+  border-radius: 6px;
+  background: rgba(10, 15, 25, 0.5);
+}
+
+.msg-avatar {
+  width: 22px;
+  height: 22px;
+  image-rendering: pixelated;
+  border-radius: 4px;
+  vertical-align: middle;
 }
 
 .thinking-badge {
