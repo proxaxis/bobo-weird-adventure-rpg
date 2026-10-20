@@ -17,9 +17,9 @@
 /** @type {NpcDef[]} */
 export const NPC_DEFS = [
   {
-    id: 'mob-aria',
-    name: 'アリア',
-    vrmModelUrl: '/models/aria.vrm',
+    id: 'mob-yui',
+    name: 'ユイ',
+    vrmModelUrl: '/models/yui.vrm',
     x: 620,
     y: 380,
   },
