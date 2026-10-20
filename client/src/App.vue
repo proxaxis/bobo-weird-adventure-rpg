@@ -6,6 +6,7 @@
  */
 import GameCanvas from '@/components/GameCanvas.vue';
 import HudOverlay from '@/components/HudOverlay.vue';
+import P2pPanel from '@/components/P2pPanel.vue';
 import DialogView from '@/dialog/DialogView.vue';
 import { useDialogStore } from '@/stores/dialogStore.js';
 
@@ -17,6 +18,7 @@ const dialog = useDialogStore();
     <GameCanvas class="layer-game" />
     <div class="layer-ui">
       <HudOverlay />
+      <P2pPanel />
       <DialogView v-if="dialog.isOpen" />
     </div>
   </div>

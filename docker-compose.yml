@@ -7,15 +7,29 @@ services:
     environment:
       - NODE_ENV=development
       - CHOKIDAR_USEPOLLING=true
+      # vite dev proxy(/ai) の転送先。コンテナからはサービス名で解決する
+      - AI_SERVER_URL=http://server:8787
     volumes:
       - ./client:/app
     ports:
       - "8010:8010"
     command: sleep infinity
 
-  # Phase 4 で有効化: FastAPI + ローカルLLMバックエンド
-  # server:
-  #   build: ./server
-  #   container_name: bobo_rpg_server
-  #   ports:
-  #     - "8787:8787"
+  # AIバックエンド: FastAPI + ローカルLLM(Ollama)
+  server:
+    build: ./server
+    container_name: bobo_rpg_server
+    environment:
+      # ホスト上で動く Ollama（ytc-llm 等）を参照
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=qwen2.5:7b-instruct
+      - DATA_DIR=/app/data
+    volumes:
+      - ./server/data:/app/data
+      - ./server/app:/app/app
+    ports:
+      - "8787:8787"
+    # 開発用にホットリロード有効
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8787 --reload
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

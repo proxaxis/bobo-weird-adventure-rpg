@@ -105,6 +105,8 @@ export const useDialogStore = defineStore('dialog', () => {
       message: trimmed,
       parameters: parameters.toArray(),
       environment: player.environment,
+      npcId: npcId.value,
+      npcName: npcName.value,
     };
 
     try {

@@ -1,12 +1,17 @@
 /**
  * @fileoverview AI サーバとの対話ストリームクライアント。
- * - VITE_AI_BASE_URL 設定時: POST /dialog/stream に fetch し JSON-Lines を逐次パース
- * - 未設定時: モックストリームで代行（バックエンド Phase 4 完了までの開発用）
+ * - VITE_AI_BASE_URL 未設定: '/ai'（vite dev プロキシ → server:8787）
+ * - 'mock' 指定時: モックストリームで代行（バックエンド不要の開発用）
  */
 
 import { mockStreamDialog } from '@/net/mockAiStream.js';
 
-const BASE_URL = import.meta.env.VITE_AI_BASE_URL ?? '';
+/**
+ * AIサーバのベースURL。
+ * - 未設定: '/ai' → vite dev プロキシ経由で docker の server(8787) へ
+ * - 'mock': モックストリームで代行（バックエンド不要の開発モード）
+ */
+const BASE_URL = import.meta.env.VITE_AI_BASE_URL ?? '/ai';
 
 /**
  * 対話リクエストを送り、StreamChunk を逐次 yield する非同期ジェネレータ。
@@ -15,7 +20,7 @@ const BASE_URL = import.meta.env.VITE_AI_BASE_URL ?? '';
  * @returns {AsyncGenerator<import('@/types.js').StreamChunk, void, unknown>}
  */
 export async function* streamDialogChunks(request, options = {}) {
-  if (!BASE_URL) {
+  if (BASE_URL === 'mock') {
     yield* mockStreamDialog(request);
     return;
   }

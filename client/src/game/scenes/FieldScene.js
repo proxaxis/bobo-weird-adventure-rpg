@@ -24,6 +24,7 @@ const POLLUTION_DECAY = 0.02; // ゾーン外での毎秒回復
 const HP_DRAIN_POLLUTION = 0.8; // この汚染度を超えるとHP減少
 const HP_DRAIN_RATE = 0.04;
 const VITAL_EMIT_MS = 250;
+const POSITION_EMIT_MS = 100;
 
 /**
  * 汚染ゾーン定義。
@@ -49,8 +50,11 @@ export class FieldScene extends Phaser.Scene {
     this.hp = 1;
     this.voidCount = 0;
     this.vitalTimer = 0;
+    this.positionTimer = 0;
     /** @type {Phaser.GameObjects.Sprite | null} */
     this.nearestNpc = null;
+    /** @type {Map<string, Phaser.GameObjects.Sprite>} リモートピアのスプライト */
+    this.peerSprites = new Map();
   }
 
   /**
@@ -74,6 +78,39 @@ export class FieldScene extends Phaser.Scene {
     this.#createNpcs();
     this.#createInput();
     this.#createPrompt();
+    this.#bindPeerEvents();
+  }
+
+  /**
+   * peer:position / peer:status を購読し、リモートプレイヤーを描画する。
+   * シーン破棄時に必ず解除する。
+   * @returns {void}
+   */
+  #bindPeerEvents() {
+    this.onPeerPosition = (/** @type {import('@/types.js').PeerPosition} */ p) => {
+      let sprite = this.peerSprites.get(p.peerId);
+      if (!sprite) {
+        sprite = this.add.sprite(p.x, p.y, 'tex-peer');
+        this.peerSprites.set(p.peerId, sprite);
+      } else {
+        sprite.setPosition(p.x, p.y);
+      }
+    };
+    this.onPeerStatus = (/** @type {import('@/types.js').PeerStatus} */ s) => {
+      if (s.state !== 'left') return;
+      const sprite = this.peerSprites.get(s.peerId);
+      if (sprite) {
+        sprite.destroy();
+        this.peerSprites.delete(s.peerId);
+      }
+    };
+    eventBus.on(GAME_EVENTS.PEER_POSITION, this.onPeerPosition);
+    eventBus.on(GAME_EVENTS.PEER_STATUS, this.onPeerStatus);
+    this.events.once('shutdown', () => {
+      eventBus.off(GAME_EVENTS.PEER_POSITION, this.onPeerPosition);
+      eventBus.off(GAME_EVENTS.PEER_STATUS, this.onPeerStatus);
+      this.peerSprites.clear();
+    });
   }
 
   /**
@@ -278,6 +315,15 @@ export class FieldScene extends Phaser.Scene {
     if (this.vitalTimer >= VITAL_EMIT_MS) {
       this.vitalTimer = 0;
       this.#emitVitals();
+    }
+
+    this.positionTimer += delta;
+    if (this.positionTimer >= POSITION_EMIT_MS) {
+      this.positionTimer = 0;
+      eventBus.emit(GAME_EVENTS.PLAYER_POSITION, {
+        x: this.player.x,
+        y: this.player.y,
+      });
     }
   }
 

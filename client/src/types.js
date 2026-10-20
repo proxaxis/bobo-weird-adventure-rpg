@@ -37,6 +37,8 @@
  * @property {string} message - プレイヤー入力テキスト
  * @property {number[]} parameters - 1000要素のパラメータスナップショット
  * @property {EnvironmentState} environment - 環境スナップショット
+ * @property {string} [npcId] - 対話相手の識別子（サーバ側メモリのキー）
+ * @property {string} [npcName] - 対話相手の表示名
  */
 
 /**
@@ -64,6 +66,28 @@
  */
 
 /**
+ * 自プレイヤーのフィールド位置（player:position）。
+ * @typedef {Object} PlayerPosition
+ * @property {number} x
+ * @property {number} y
+ */
+
+/**
+ * ピアの位置更新（peer:position）。
+ * @typedef {Object} PeerPosition
+ * @property {string} peerId
+ * @property {number} x
+ * @property {number} y
+ */
+
+/**
+ * ピア接続状態の変化（peer:status）。
+ * @typedef {Object} PeerStatus
+ * @property {string} peerId
+ * @property {'connected'|'left'|'error'} state
+ */
+
+/**
  * mitt のイベント型マップ（Phaser ↔ Vue 疎結合プロトコル）。
  * ※コロンを含むキーは @property 記法で表せないためインライン型で定義する。
  * @typedef {{
@@ -71,6 +95,9 @@
  *   'dialog:close': void,
  *   'game:pause': boolean,
  *   'player:vital_update': VitalUpdate,
+ *   'player:position': PlayerPosition,
+ *   'peer:position': PeerPosition,
+ *   'peer:status': PeerStatus,
  * }} GameEventMap
  */
 

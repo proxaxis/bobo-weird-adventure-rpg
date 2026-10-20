@@ -9,4 +9,7 @@ export const GAME_EVENTS = Object.freeze({
   DIALOG_CLOSE: /** @type {'dialog:close'} */ ('dialog:close'),
   GAME_PAUSE: /** @type {'game:pause'} */ ('game:pause'),
   VITAL_UPDATE: /** @type {'player:vital_update'} */ ('player:vital_update'),
+  PLAYER_POSITION: /** @type {'player:position'} */ ('player:position'),
+  PEER_POSITION: /** @type {'peer:position'} */ ('peer:position'),
+  PEER_STATUS: /** @type {'peer:status'} */ ('peer:status'),
 });

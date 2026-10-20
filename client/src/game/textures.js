@@ -51,6 +51,9 @@ export function ensureFieldTextures(scene) {
   // プレイヤー
   circleTexture(scene, 'tex-player', 14, '#9fe6ff', '#1c5d7a');
 
+  // 他プレイヤー（P2P）
+  circleTexture(scene, 'tex-peer', 14, '#ffd29f', '#7a4a1c');
+
   // ボイド結晶（菱形＋発光）
   makeTexture(scene, 'tex-void', 28, 28, (ctx, w, h) => {
     const cx = w / 2;
