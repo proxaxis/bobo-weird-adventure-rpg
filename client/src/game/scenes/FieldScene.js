@@ -145,7 +145,7 @@ export class FieldScene extends Phaser.Scene {
     this.baseGroup = null;
     /** タイル矩形 {x0,y0,x1,y1}（内部=床含む） */
     this.baseBounds = { x0: 0, y0: 0, x1: 0, y1: 0 };
-    /** @type {Set<number>} 壁/ドアブロックのタイルキー(tx*1e6+ty相当) */
+    /** @type {Set<string>} 壁/ドアブロックのタイルキー("tx,ty") */
     this.baseBlocks = new Set();
     /** ドアのワールド座標矩形 */
     this.doorRect = { x: 0, y: 0, w: 0, h: 0 };
@@ -186,10 +186,11 @@ export class FieldScene extends Phaser.Scene {
   create() {
     ensureFieldTextures(this);
 
-    // int32 全域ワールド + 安全乱数スポーン
+    // int32 全域ワールド + 安全乱数スポーン（障害/汚染タイルを回避）
     this.physics.world.setBounds(-2147483647, -2147483647, 4294967294, 4294967294);
-    this.spawnX = secureRandomCoord();
-    this.spawnY = secureRandomCoord();
+    const sp = this.#safeSpawnCoord();
+    this.spawnX = sp.x;
+    this.spawnY = sp.y;
 
     this.cameras.main.setBackgroundColor('#07090c');
 
@@ -367,13 +368,13 @@ export class FieldScene extends Phaser.Scene {
   // ------------------------------------------------------------------
 
   /**
-   * タイル座標→ブロックキー。
+   * タイル座標→ブロックキー。int32全域対応のため文字列キー。
    * @param {number} tx
    * @param {number} ty
-   * @returns {number}
+   * @returns {string}
    */
   #blockKey(tx, ty) {
-    return Math.imul(tx, 100000) + ty;
+    return `${tx},${ty}`;
   }
 
   /**
@@ -508,13 +509,38 @@ export class FieldScene extends Phaser.Scene {
   }
 
   /**
-   * NPC をスポーン地点基準の相対座標に配置する。
+   * 安全な乱数スポーン座標。障害物・汚染タイルを避けて探す。
+   * @returns {{x: number, y: number}}
+   */
+  #safeSpawnCoord() {
+    for (let i = 0; i < 60; i++) {
+      const x = secureRandomCoord();
+      const y = secureRandomCoord();
+      const b = biomeAt(x, y, WORLD_SEED);
+      if (!b.obstacle && !b.toxic) return { x, y };
+    }
+    return { x: 0, y: 0 };
+  }
+
+  /**
+   * NPC をスポーン地点基準の相対座標に配置する。障害物上なら近傍の空きへずらす。
    * @param {number} offX
    * @param {number} offY
    * @returns {{x: number, y: number}}
    */
   #relToSpawn(offX, offY) {
-    return { x: this.spawnX + (offX - 800), y: this.spawnY + (offY - 608) };
+    const x0 = this.spawnX + (offX - 800);
+    const y0 = this.spawnY + (offY - 608);
+    if (!this.#blockedAt(x0, y0)) return { x: x0, y: y0 };
+    // 近傍スパイラル探索（最大 ~10タイル）
+    for (let r = 1; r <= 10; r++) {
+      for (let a = 0; a < 8; a++) {
+        const x = x0 + Math.round(Math.cos(a * Math.PI / 4) * r * TILE);
+        const y = y0 + Math.round(Math.sin(a * Math.PI / 4) * r * TILE);
+        if (!this.#blockedAt(x, y)) return { x, y };
+      }
+    }
+    return { x: x0, y: y0 };
   }
 
   /**
@@ -745,8 +771,9 @@ export class FieldScene extends Phaser.Scene {
               y: Math.round(c.sprite.y),
             })),
             ...[...this.baseBlocks].map((bk) => {
-              const wx = Math.floor(bk % 100000) * TILE + TILE / 2;
-              const wy = Math.floor(bk / 100000) * TILE + TILE / 2;
+              const [tx, ty] = bk.split(',').map(Number);
+              const wx = tx * TILE + TILE / 2;
+              const wy = ty * TILE + TILE / 2;
               return {
                 id: `base:${myId}:${bk}`,
                 type: 'base',
