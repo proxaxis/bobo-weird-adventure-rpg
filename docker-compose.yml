@@ -1,0 +1,21 @@
+services:
+  client:
+    image: node:24.12.0
+    container_name: bobo_rpg_client
+    user: node
+    working_dir: /app
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+    volumes:
+      - ./client:/app
+    ports:
+      - "8010:8010"
+    command: sleep infinity
+
+  # Phase 4 で有効化: FastAPI + ローカルLLMバックエンド
+  # server:
+  #   build: ./server
+  #   container_name: bobo_rpg_server
+  #   ports:
+  #     - "8787:8787"
