@@ -178,16 +178,19 @@ async def _stream(req: DialogRequest) -> AsyncGenerator[str, None]:
             while "\n" in buffer:
                 line, buffer = buffer.split("\n", 1)
                 chunk = _parse_line(line)
-                if chunk is None:
+                if chunk is None or _is_chinese_line(chunk["t"]):
                     continue
                 out, text = emit_ready(chunk)
                 reply_text += text
                 yield out
         tail = _parse_line(buffer)
-        if tail is not None:
+        if tail is not None and not _is_chinese_line(tail["t"]):
             out, text = emit_ready(tail)
             reply_text += text
             yield out
+        if not reply_text:
+            # 全行フィルタされた場合の保険
+            yield _line({"t": "……（ぼそぼそ、と何か言っている）", "e": "neutral", "u": []})
     except httpx.HTTPError:
         async for c in _fallback_reply(req, heur):
             # フォールバックでもテキストを回収して記憶する
