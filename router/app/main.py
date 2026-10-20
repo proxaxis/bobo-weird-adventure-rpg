@@ -5,6 +5,7 @@ Redis をコネクションプール経由で使用し、全クライアント�
 「最初に生成した者が seed を登録」方式で多重生成を防ぐ。
 """
 
+import json
 import os
 import time
 
@@ -87,6 +88,32 @@ async def get_chunk(cx: str, cy: str) -> dict:
         return {"exists": False}
     seed, owner = v.split(",", 1)
     return {"exists": True, "seed": int(seed), "owner": owner}
+
+
+class EntityReport(BaseModel):
+    chunk: str  # "cx,cy"
+    owner: str  # peerId
+    entities: list[dict]  # [{id, type, x, y, meta?}]
+
+
+@app.post("/entities/report")
+async def report_entities(r: EntityReport) -> dict:
+    """チャンク所有者がそのチャンク内エンティティ位置を報告する。"""
+    await _r().set(
+        f"ents:{r.chunk}",
+        json.dumps({"owner": r.owner, "entities": r.entities, "t": time.time()}),
+        ex=60,
+    )
+    return {"ok": True}
+
+
+@app.get("/entities/{cx}/{cy}")
+async def get_entities(cx: str, cy: str) -> dict:
+    """チャンク内エンティティ（NPC/エネミー/拠点等）を取得する。"""
+    v = await _r().get(f"ents:{cx},{cy}")
+    if not v:
+        return {"owner": "", "entities": []}
+    return json.loads(v)
 
 
 @app.get("/health")

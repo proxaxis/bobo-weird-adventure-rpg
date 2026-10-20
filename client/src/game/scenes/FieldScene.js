@@ -23,8 +23,15 @@ import {
 import { NPC_DEFS } from '@/game/npcs.js';
 import { ensureFieldTextures } from '@/game/textures.js';
 import { p2pSession } from '@/net/p2pSync.js';
-import { queryChunk, registerChunk, reportPresence } from '@/net/routerClient.js';
+import {
+  getEntities,
+  queryChunk,
+  registerChunk,
+  reportEntities,
+  reportPresence,
+} from '@/net/routerClient.js';
 import { useCompanionStore } from '@/stores/companionStore.js';
+import { useParameterStore } from '@/stores/parameterStore.js';
 import { usePeerStore } from '@/stores/peerStore.js';
 
 const TILE = 32;
@@ -52,6 +59,14 @@ const DEATH_INVULNERABLE_MS = 2500;
 const VITAL_EMIT_MS = 250;
 const POSITION_EMIT_MS = 100;
 const PRESENCE_EMIT_MS = 2000;
+const ENTITY_EMIT_MS = 2000;
+const NPC_WANDER_SPEED = 26;
+const NPC_WANDER_RADIUS = 256;
+const NPC_ATTRACT_TRUST = 0.5;
+const NPC_ATTRACT_RANGE = 500;
+// 拠点
+const BASE_TILES = 6;
+const BASE_EXPAND_COST = 3;
 // 全クライアント共通の世界種（同一マップを見せるため固定）
 const WORLD_SEED = 0xb0b0aa;
 
@@ -118,6 +133,29 @@ export class FieldScene extends Phaser.Scene {
     this.takenVoidKeys = new Set();
     /** @type {Map<string, number>} チャンクキー→解決済みseed */
     this.chunkSeeds = new Map();
+    /** @type {Map<string, string>} チャンクキー→所有者peerId */
+    this.chunkOwners = new Map();
+
+    // 拠点（セーフエリア）
+    /** @type {Phaser.Physics.Arcade.StaticGroup | null} */
+    this.baseGroup = null;
+    /** タイル矩形 {x0,y0,x1,y1}（内部=床含む） */
+    this.baseBounds = { x0: 0, y0: 0, x1: 0, y1: 0 };
+    /** @type {Set<number>} 壁/ドアブロックのタイルキー(tx*1e6+ty相当) */
+    this.baseBlocks = new Set();
+    /** ドアのワールド座標矩形 */
+    this.doorRect = { x: 0, y: 0, w: 0, h: 0 };
+    /** @type {Set<string>} ドア通過を許可したpeerId（自分は常時許可） */
+    this.basePermitted = new Set();
+
+    // NPC徘徊状態
+    /** @type {Map<string, {sprite: Phaser.GameObjects.Sprite, homeX: number, homeY: number, tx: number, ty: number, waitUntil: number}>} */
+    this.npcStates = new Map();
+
+    // リモートエンティティ描画（他クライアントのchunk所有エンティティ）
+    /** @type {Map<string, Phaser.GameObjects.Sprite>} */
+    this.remoteEntities = new Map();
+    this.entityTimer = 0;
   }
 
   /**
@@ -149,6 +187,7 @@ export class FieldScene extends Phaser.Scene {
 
     this.#createMapView();
     this.#createPlayer();
+    this.#createBase();
     this.#createVoidSystem();
     this.#createNpcs();
     this.#createCreatures();
@@ -236,6 +275,140 @@ export class FieldScene extends Phaser.Scene {
     this.#redrawMap(true);
   }
 
+  // ------------------------------------------------------------------
+  // 拠点（セーフエリア）
+  // ------------------------------------------------------------------
+
+  /**
+   * タイル座標→ブロックキー。
+   * @param {number} tx
+   * @param {number} ty
+   * @returns {number}
+   */
+  #blockKey(tx, ty) {
+    return Math.imul(tx, 100000) + ty;
+  }
+
+  /**
+   * 壁/ドアブロックを配置する。
+   * @param {number} tx
+   * @param {number} ty
+   * @param {'tex-block'|'tex-door'} tex
+   * @returns {Phaser.Physics.Arcade.Sprite | null}
+   */
+  #placeBaseBlock(tx, ty, tex) {
+    const key = this.#blockKey(tx, ty);
+    if (this.baseBlocks.has(key)) return null;
+    const wx = tx * TILE + TILE / 2;
+    const wy = ty * TILE + TILE / 2;
+    const s = /** @type {Phaser.Physics.Arcade.Sprite} */ (
+      /** @type {any} */ (this.baseGroup).create(wx, wy, tex)
+    );
+    s.refreshBody();
+    this.baseBlocks.add(key);
+    return s;
+  }
+
+  /**
+   * 初期拠点: スポーン位置を含む 6x6 外周壁 + 左辺中央ドア。
+   * @returns {void}
+   */
+  #createBase() {
+    this.baseGroup = this.physics.add.staticGroup();
+    const stx = Math.floor(this.spawnX / TILE);
+    const sty = Math.floor(this.spawnY / TILE);
+    const x0 = stx - Math.floor(BASE_TILES / 2);
+    const y0 = sty - Math.floor(BASE_TILES / 2);
+    this.baseBounds = { x0, y0, x1: x0 + BASE_TILES - 1, y1: y0 + BASE_TILES - 1 };
+    const doorTy = y0 + Math.floor(BASE_TILES / 2);
+    for (let ty = y0; ty <= this.baseBounds.y1; ty++) {
+      for (let tx = x0; tx <= this.baseBounds.x1; tx++) {
+        const edge = tx === x0 || tx === this.baseBounds.x1 || ty === y0 || ty === this.baseBounds.y1;
+        if (!edge) continue;
+        if (tx === x0 && ty === doorTy) {
+          // ドア: 所有者（自分）は通過可、他者はブロックされる
+          this.doorRect = { x: tx * TILE, y: ty * TILE, w: TILE, h: TILE };
+          this.#placeBaseBlock(tx, ty, 'tex-door');
+          continue;
+        }
+        this.#placeBaseBlock(tx, ty, 'tex-block');
+      }
+    }
+    // 壁は全員ブロック。ドアは許可者（自分）のみ通過可
+    this.physics.add.collider(
+      this.player,
+      this.baseGroup,
+      undefined,
+      (_p, block) => {
+        const b = /** @type {Phaser.Physics.Arcade.Sprite} */ (block);
+        return !this.#isDoorTile(b.x, b.y);
+      },
+    );
+    this.basePermitted.add(this.#myPeerId() || 'me');
+  }
+
+  /**
+   * 座標が拠点内部（床）にあるか。セーフエリア判定。
+   * @param {number} x
+   * @param {number} y
+   * @returns {boolean}
+   */
+  #insideBase(x, y) {
+    const b = this.baseBounds;
+    const tx = Math.floor(x / TILE);
+    const ty = Math.floor(y / TILE);
+    return tx > b.x0 && tx < b.x1 && ty > b.y0 && ty < b.y1;
+  }
+
+  /**
+   * 座標が自拠点のドアタイルか（本人なら通過可）。
+   * @param {number} x
+   * @param {number} y
+   * @returns {boolean}
+   */
+  #isDoorTile(x, y) {
+    const d = this.doorRect;
+    return x >= d.x && x < d.x + d.w && y >= d.y && y < d.y + d.h;
+  }
+
+  /**
+   * Bキー: ボイド消費で壁ブロックを拡大追加する。
+   * @returns {void}
+   */
+  #tryExpandBase() {
+    if (this.voidCount < BASE_EXPAND_COST) return;
+    const b = this.baseBounds;
+    // 既存ブロックに隣接する空きタイルを外側から探す
+    outer: for (let ring = 1; ring <= 4; ring++) {
+      for (let ty = b.y0 - ring; ty <= b.y1 + ring; ty++) {
+        for (let tx = b.x0 - ring; tx <= b.x1 + ring; tx++) {
+          const onRing = tx === b.x0 - ring || tx === b.x1 + ring ||
+            ty === b.y0 - ring || ty === b.y1 + ring;
+          if (!onRing) continue;
+          if (this.baseBlocks.has(this.#blockKey(tx, ty))) continue;
+          const wx = tx * TILE + TILE / 2;
+          const wy = ty * TILE + TILE / 2;
+          if (this.#blockedAt(wx, wy)) continue;
+          // 隣接タイルにブロックがあるか
+          let near = false;
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            if (this.baseBlocks.has(this.#blockKey(tx + dx, ty + dy))) { near = true; break; }
+          }
+          if (!near) continue;
+          if (!this.#placeBaseBlock(tx, ty, 'tex-block')) continue;
+          this.voidCount -= BASE_EXPAND_COST;
+          this.baseBounds = {
+            x0: Math.min(b.x0, tx), y0: Math.min(b.y0, ty),
+            x1: Math.max(b.x1, tx), y1: Math.max(b.y1, ty),
+          };
+          playSfx('pickup');
+          this.#emitVitals();
+          break outer;
+        }
+      }
+    }
+  }
+
   /**
    * @returns {void}
    */
@@ -282,6 +455,14 @@ export class FieldScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
       this.npcLabels.set(def.id, label);
+      this.npcStates.set(def.id, {
+        sprite,
+        homeX: x,
+        homeY: y,
+        tx: x,
+        ty: y,
+        waitUntil: this.time.now + Phaser.Math.Between(800, 3000),
+      });
     }
   }
 
@@ -305,7 +486,7 @@ export class FieldScene extends Phaser.Scene {
       x = this.player.x + Phaser.Math.Between(-1024, 1024);
       y = this.player.y + Phaser.Math.Between(-1024, 1024);
       const far = Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) >= 240;
-      if (far && !this.#blockedAt(x, y)) break;
+      if (far && !this.#blockedAt(x, y) && !this.#insideBase(x, y)) break;
     }
     const c = new Creature(this, x, y);
     this.creatures.push(c);
@@ -330,10 +511,12 @@ export class FieldScene extends Phaser.Scene {
         rightArrow: 'RIGHT',
         interact: 'E',
         attack: 'SPACE',
+        expand: 'B',
       })
     );
     kb.on('keydown-E', () => this.#tryInteract());
     kb.on('keydown-SPACE', () => this.#tryAttack());
+    kb.on('keydown-B', () => this.#tryExpandBase());
   }
 
   /**
@@ -444,6 +627,97 @@ export class FieldScene extends Phaser.Scene {
     } catch {
       // router 未起動など：単独プレイとして継続
     }
+    void this.#syncEntities();
+  }
+
+  /**
+   * エンティティ同期。自分が所有するチャンクは NPC/エネミー位置を
+   * router へ報告し、他者所有チャンクは取得してリモート描画する。
+   * @returns {Promise<void>}
+   */
+  async #syncEntities() {
+    const myId = p2pSession.peerId || 'me';
+    const ccx = Math.floor(this.player.x / CHUNK_SIZE);
+    const ccy = Math.floor(this.player.y / CHUNK_SIZE);
+    for (let cy = ccy - CHUNK_VIEW; cy <= ccy + CHUNK_VIEW; cy++) {
+      for (let cx = ccx - CHUNK_VIEW; cx <= ccx + CHUNK_VIEW; cx++) {
+        const key = `${cx},${cy}`;
+        const owner = this.chunkOwners.get(key);
+        if (owner === myId || owner === 'me') {
+          // 所有チャンク: NPC・クリーチャー位置 + 拠点ブロックを報告
+          const entities = [
+            ...[...this.npcStates.entries()].map(([id, s]) => ({
+              id: `npc:${id}`,
+              type: 'npc',
+              x: Math.round(s.sprite.x),
+              y: Math.round(s.sprite.y),
+            })),
+            ...this.creatures.map((c, i) => ({
+              id: `mob:${key}:${i}`,
+              type: 'creature',
+              x: Math.round(c.sprite.x),
+              y: Math.round(c.sprite.y),
+            })),
+            ...[...this.baseBlocks].map((bk) => ({
+              id: `base:${myId}:${bk}`,
+              type: 'base',
+              x: Math.floor(bk % 100000) * TILE + TILE / 2,
+              y: Math.floor(bk / 100000) * TILE + TILE / 2,
+            })),
+          ];
+          try {
+            await reportEntities(key, myId, entities);
+          } catch {
+            /* router未起動 */
+          }
+        } else {
+          try {
+            const r = await getEntities(cx, cy);
+            if (r.owner && r.owner !== myId) {
+              this.chunkOwners.set(key, r.owner);
+              this.#syncRemoteEntities(key, r.entities);
+            }
+          } catch {
+            /* router未起動 */
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * 他クライアント所有チャンクのエンティティをスプライト描画する。
+   * @param {string} chunkKey
+   * @param {Array<{id: string, type: string, x: number, y: number}>} entities
+   * @returns {void}
+   */
+  #syncRemoteEntities(chunkKey, entities) {
+    const seen = new Set();
+    const TEX = /** @type {Record<string, string>} */ ({
+      npc: 'spr-npc-nagi',
+      creature: 'spr-creature',
+      base: 'tex-block',
+    });
+    for (const e of entities) {
+      const key = `${chunkKey}:${e.id}`;
+      seen.add(key);
+      let s = this.remoteEntities.get(key);
+      if (!s) {
+        s = this.add.sprite(e.x, e.y, TEX[e.type] ?? 'spr-peer');
+        s.setScale(0.4);
+        s.setAlpha(0.85);
+        this.remoteEntities.set(key, s);
+      } else {
+        s.setPosition(e.x, e.y);
+      }
+    }
+    // 消えたエンティティを破棄
+    for (const [key, s] of this.remoteEntities) {
+      if (key.startsWith(`${chunkKey}:`) && !seen.has(key)) {
+        s.destroy();
+        this.remoteEntities.delete(key);
+      }
+    }
   }
 
   /**
@@ -458,11 +732,13 @@ export class FieldScene extends Phaser.Scene {
     if (cached !== undefined) return cached;
     const local = (Math.imul(cx, 2654435761) ^ Math.imul(cy, 40503) ^ WORLD_SEED) | 0;
     this.chunkSeeds.set(key, local);
+    this.chunkOwners.set(key, p2pSession.peerId || 'me');
     void (async () => {
       try {
         const r = await queryChunk(cx, cy);
         if (r.exists && r.owner !== p2pSession.peerId && r.seed !== undefined) {
           this.chunkSeeds.set(key, r.seed);
+          this.chunkOwners.set(key, r.owner ?? '');
         } else {
           await registerChunk(cx, cy, local, p2pSession.peerId || 'anon');
         }
@@ -787,6 +1063,7 @@ export class FieldScene extends Phaser.Scene {
     this.#updatePrompt();
     this.#updateCreatures(time);
     this.#updateCompanion(time);
+    this.#updateNpcs(time);
 
     // プレイヤーがタイル境界を跨いだらマップ再描画
     this.#redrawMap();
@@ -853,7 +1130,9 @@ export class FieldScene extends Phaser.Scene {
    * @returns {void}
    */
   #updatePollution(dt) {
-    const inside = biomeAt(this.player.x, this.player.y, WORLD_SEED).toxic;
+    const inside =
+      biomeAt(this.player.x, this.player.y, WORLD_SEED).toxic &&
+      !this.#insideBase(this.player.x, this.player.y);
     if (inside) {
       this.pollution = Math.min(1, this.pollution + POLLUTION_RATE * dt);
     } else {
@@ -862,6 +1141,45 @@ export class FieldScene extends Phaser.Scene {
     if (this.pollution >= HP_DRAIN_POLLUTION && this.time.now >= this.deadUntil) {
       this.hp = Math.max(0, this.hp - HP_DRAIN_RATE * dt);
       if (this.hp <= 0) this.#onDeath();
+    }
+  }
+
+  /**
+   * NPC 徘徊: ホーム周辺ランダム散策 + 高信頼時はプレイヤーへ寄る。
+   * @param {number} time
+   * @returns {void}
+   */
+  #updateNpcs(time) {
+    const params = useParameterStore();
+    const trust = params.get(100); // P_INDEX.TRUST_PLAYER
+    for (const st of this.npcStates.values()) {
+      const s = st.sprite;
+      if (!s.active) continue;
+      if (time < st.waitUntil) continue;
+      const dx = st.tx - s.x;
+      const dy = st.ty - s.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 6) {
+        st.waitUntil = time + Phaser.Math.Between(1500, 5000);
+        // 次の目的地: 高信頼＆近距離ならプレイヤー付近、通常はホーム周辺
+        const pd = Phaser.Math.Distance.Between(s.x, s.y, this.player.x, this.player.y);
+        if (trust >= NPC_ATTRACT_TRUST && pd < NPC_ATTRACT_RANGE) {
+          st.tx = this.player.x + Phaser.Math.Between(-80, 80);
+          st.ty = this.player.y + Phaser.Math.Between(-80, 80);
+        } else {
+          st.tx = st.homeX + Phaser.Math.Between(-NPC_WANDER_RADIUS, NPC_WANDER_RADIUS);
+          st.ty = st.homeY + Phaser.Math.Between(-NPC_WANDER_RADIUS, NPC_WANDER_RADIUS);
+        }
+      } else {
+        const step = NPC_WANDER_SPEED / 60;
+        s.x += (dx / dist) * Math.min(step, dist);
+        s.y += (dy / dist) * Math.min(step, dist);
+      }
+      // ラベル追従
+      const label = this.npcLabels.get(
+        /** @type {any} */ (s.getData('npc'))?.id ?? '',
+      );
+      if (label) label.setPosition(s.x, s.y - 30);
     }
   }
 

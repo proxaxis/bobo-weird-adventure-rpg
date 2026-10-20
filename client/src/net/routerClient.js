@@ -36,6 +36,33 @@ export async function queryChunk(cx, cy) {
 }
 
 /**
+ * チャンク内エンティティ位置を報告する（所有者のみ）。
+ * @param {string} chunkKey - "cx,cy"
+ * @param {string} owner
+ * @param {Array<{id: string, type: string, x: number, y: number, meta?: object}>} entities
+ * @returns {Promise<void>}
+ */
+export async function reportEntities(chunkKey, owner, entities) {
+  await fetch(`${BASE}/entities/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chunk: chunkKey, owner, entities }),
+  });
+}
+
+/**
+ * チャンク内エンティティを取得する。
+ * @param {number} cx
+ * @param {number} cy
+ * @returns {Promise<{owner: string, entities: Array<{id: string, type: string, x: number, y: number, meta?: object}>}>}
+ */
+export async function getEntities(cx, cy) {
+  const res = await fetch(`${BASE}/entities/${cx}/${cy}`);
+  if (!res.ok) return { owner: '', entities: [] };
+  return res.json();
+}
+
+/**
  * チャンク生成結果を登録。既登録なら既存 seed/owner が返る。
  * @param {number} cx
  * @param {number} cy

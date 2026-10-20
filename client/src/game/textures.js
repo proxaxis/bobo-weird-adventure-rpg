@@ -123,6 +123,34 @@ export function ensureFieldTextures(scene) {
     ctx.stroke();
   });
 
+  // 拠点壁ブロック（32x32）
+  makeTexture(scene, 'tex-block', 32, 32, (ctx, w, h) => {
+    ctx.fillStyle = '#4a5264';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#5a6478';
+    ctx.fillRect(2, 2, w - 4, 6);
+    ctx.fillStyle = '#39414f';
+    ctx.fillRect(2, h - 8, w - 4, 6);
+    ctx.strokeStyle = '#232833';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, w - 2, h - 2);
+  });
+
+  // 拠点ドア（32x32）
+  makeTexture(scene, 'tex-door', 32, 32, (ctx, w, h) => {
+    ctx.fillStyle = '#6a5a3a';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#7a6a4a';
+    ctx.fillRect(4, 2, w - 8, h - 4);
+    ctx.fillStyle = '#3a3020';
+    ctx.fillRect(w / 2 - 1, 4, 2, h - 8);
+    ctx.fillStyle = '#ffe08a';
+    ctx.fillRect(w / 2 + 4, h / 2 - 2, 3, 4);
+    ctx.strokeStyle = '#2a2416';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, w - 2, h - 2);
+  });
+
   // 地面タイル（64x64、暗め＋罫線＋ノイズ）
   makeTexture(scene, 'tile-ground', 64, 64, (ctx, w, h) => {
     ctx.fillStyle = '#14181d';
