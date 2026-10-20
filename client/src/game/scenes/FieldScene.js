@@ -155,6 +155,10 @@ export class FieldScene extends Phaser.Scene {
     // リモートエンティティ描画（他クライアントのchunk所有エンティティ）
     /** @type {Map<string, Phaser.GameObjects.Sprite>} */
     this.remoteEntities = new Map();
+    /** @type {Map<string, {x: number, y: number}>} 補完用の目標座標 */
+    this.remoteTargets = new Map();
+    /** @type {Map<string, {x: number, y: number}>} ピアの目標座標 */
+    this.peerTargets = new Map();
     this.entityTimer = 0;
   }
 
@@ -549,9 +553,9 @@ export class FieldScene extends Phaser.Scene {
         sprite = this.add.sprite(p.x, p.y, 'spr-peer');
         sprite.setScale(0.4);
         this.peerSprites.set(p.peerId, sprite);
-      } else {
-        sprite.setPosition(p.x, p.y);
       }
+      // 実座標は目標として保持し、update で補完する
+      this.peerTargets.set(p.peerId, { x: p.x, y: p.y });
     };
     this.onPeerStatus = (/** @type {import('@/types.js').PeerStatus} */ s) => {
       if (s.state === 'left') {
@@ -560,6 +564,7 @@ export class FieldScene extends Phaser.Scene {
           sprite.destroy();
           this.peerSprites.delete(s.peerId);
         }
+        this.peerTargets.delete(s.peerId);
       }
       this.#rebuildVoidLayout();
     };
@@ -707,15 +712,15 @@ export class FieldScene extends Phaser.Scene {
         s.setScale(0.4);
         s.setAlpha(0.85);
         this.remoteEntities.set(key, s);
-      } else {
-        s.setPosition(e.x, e.y);
       }
+      this.remoteTargets.set(key, { x: e.x, y: e.y });
     }
     // 消えたエンティティを破棄
     for (const [key, s] of this.remoteEntities) {
       if (key.startsWith(`${chunkKey}:`) && !seen.has(key)) {
         s.destroy();
         this.remoteEntities.delete(key);
+        this.remoteTargets.delete(key);
       }
     }
   }
@@ -1064,6 +1069,7 @@ export class FieldScene extends Phaser.Scene {
     this.#updateCreatures(time);
     this.#updateCompanion(time);
     this.#updateNpcs(time);
+    this.#updateInterpolation(dt);
 
     // プレイヤーがタイル境界を跨いだらマップ再描画
     this.#redrawMap();
@@ -1123,6 +1129,35 @@ export class FieldScene extends Phaser.Scene {
     if (vx !== 0 && this.#blockedAt(this.player.x + vx * step, this.player.y)) vx = 0;
     if (vy !== 0 && this.#blockedAt(this.player.x, this.player.y + vy * step)) vy = 0;
     this.player.setVelocity(vx * PLAYER_SPEED, vy * PLAYER_SPEED);
+  }
+
+  /**
+   * リモートスプライトを目標座標へ指数補完する。
+   * 距離が大きすぎる場合は瞬時移動（テレポート扱い）。
+   * @param {number} dt - 秒
+   * @returns {void}
+   */
+  #updateInterpolation(dt) {
+    const k = 1 - Math.exp(-dt * 10); // 収束レート 10/s
+    const lerpTo = (/** @type {Phaser.GameObjects.Sprite} */ s, /** @type {{x:number,y:number}} */ t) => {
+      const dx = t.x - s.x;
+      const dy = t.y - s.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 300 || dist < 0.5) {
+        s.setPosition(t.x, t.y);
+      } else {
+        s.x += dx * k;
+        s.y += dy * k;
+      }
+    };
+    for (const [id, sprite] of this.peerSprites) {
+      const t = this.peerTargets.get(id);
+      if (t && sprite.active) lerpTo(sprite, t);
+    }
+    for (const [key, sprite] of this.remoteEntities) {
+      const t = this.remoteTargets.get(key);
+      if (t && sprite.active) lerpTo(sprite, t);
+    }
   }
 
   /**
