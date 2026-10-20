@@ -148,6 +148,7 @@
  *   'peer:attack': PeerAttack,
  *   'peer:stolen': PeerStolen,
  *   'player:death': PlayerDeath,
+ *   'player:spend-void': {amount: number},
  *   'npc:name-revealed': CompanionJoinPayload,
  * }} GameEventMap
  */

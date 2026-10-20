@@ -18,5 +18,6 @@ export const GAME_EVENTS = Object.freeze({
   PEER_ATTACK: /** @type {'peer:attack'} */ ('peer:attack'),
   PEER_STOLEN: /** @type {'peer:stolen'} */ ('peer:stolen'),
   PLAYER_DEATH: /** @type {'player:death'} */ ('player:death'),
+  PLAYER_SPEND_VOID: /** @type {'player:spend-void'} */ ('player:spend-void'),
   NPC_NAME_REVEALED: /** @type {'npc:name-revealed'} */ ('npc:name-revealed'),
 });

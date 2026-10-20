@@ -4,6 +4,7 @@
  *   layer-game  : Phaser キャンバス（最背面）
  *   layer-ui    : Vue HUD/対話UI（pointer-events:none、必要箇所のみ auto）
  */
+import CraftPanel from '@/components/CraftPanel.vue';
 import GameCanvas from '@/components/GameCanvas.vue';
 import HudOverlay from '@/components/HudOverlay.vue';
 import P2pPanel from '@/components/P2pPanel.vue';
@@ -19,6 +20,7 @@ const dialog = useDialogStore();
     <div class="layer-ui">
       <HudOverlay />
       <P2pPanel />
+      <CraftPanel />
       <DialogView v-if="dialog.isOpen" />
     </div>
   </div>

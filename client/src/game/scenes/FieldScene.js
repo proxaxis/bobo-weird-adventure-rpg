@@ -31,6 +31,7 @@ import {
   reportPresence,
 } from '@/net/routerClient.js';
 import { useBaseStore } from '@/stores/baseStore.js';
+import { useGearStore } from '@/stores/gearStore.js';
 import { useCompanionStore } from '@/stores/companionStore.js';
 import { useParameterStore } from '@/stores/parameterStore.js';
 import { usePeerStore } from '@/stores/peerStore.js';
@@ -603,6 +604,10 @@ export class FieldScene extends Phaser.Scene {
     ) => {
       this.npcLabels.get(p.npcId)?.setText(p.name);
     };
+    this.onSpendVoid = (/** @type {{amount: number}} */ p) => {
+      this.voidCount = Math.max(0, this.voidCount - p.amount);
+      this.#emitVitals();
+    };
 
     const E = GAME_EVENTS;
     eventBus.on(E.PEER_POSITION, this.onPeerPosition);
@@ -613,6 +618,7 @@ export class FieldScene extends Phaser.Scene {
     eventBus.on(E.COMPANION_JOIN, this.onCompanionJoin);
     eventBus.on(E.COMPANION_LEAVE, this.onCompanionLeave);
     eventBus.on(E.NPC_NAME_REVEALED, this.onNameRevealed);
+    eventBus.on(E.PLAYER_SPEND_VOID, this.onSpendVoid);
 
     this.events.once('shutdown', () => {
       eventBus.off(E.PEER_POSITION, this.onPeerPosition);
@@ -623,6 +629,7 @@ export class FieldScene extends Phaser.Scene {
       eventBus.off(E.COMPANION_JOIN, this.onCompanionJoin);
       eventBus.off(E.COMPANION_LEAVE, this.onCompanionLeave);
       eventBus.off(E.NPC_NAME_REVEALED, this.onNameRevealed);
+      eventBus.off(E.PLAYER_SPEND_VOID, this.onSpendVoid);
       this.peerSprites.clear();
       this.creatures.forEach((c) => c.destroy());
       this.companion?.destroy();
@@ -1207,13 +1214,18 @@ export class FieldScene extends Phaser.Scene {
     const inside =
       biomeAt(this.player.x, this.player.y, WORLD_SEED).toxic &&
       !this.#insideBase(this.player.x, this.player.y);
+    const gear = useGearStore();
     if (inside) {
-      this.pollution = Math.min(1, this.pollution + POLLUTION_RATE * dt);
+      this.pollution = Math.min(
+        1,
+        this.pollution + POLLUTION_RATE * gear.pollutionMul * dt,
+      );
     } else {
       this.pollution = Math.max(0, this.pollution - POLLUTION_DECAY * dt);
     }
-    if (this.pollution >= HP_DRAIN_POLLUTION && this.time.now >= this.deadUntil) {
-      this.hp = Math.max(0, this.hp - HP_DRAIN_RATE * dt);
+    if (this.pollution >= gear.drainThreshold && this.time.now >= this.deadUntil) {
+      const rate = HP_DRAIN_RATE * gear.radiationMul * gear.maskDrainMul;
+      this.hp = Math.max(0, this.hp - rate * dt);
       if (this.hp <= 0) this.#onDeath();
     }
   }
