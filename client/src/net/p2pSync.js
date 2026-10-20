@@ -45,6 +45,8 @@ class P2PSession {
     this.pendingPos = null;
     /** @type {ReturnType<typeof setInterval> | null} */
     this.sendTimer = null;
+    /** @type {string} 自分の PeerId（open 確定後に入る） */
+    this.peerId = '';
   }
 
   /**
@@ -73,6 +75,7 @@ class P2PSession {
     this.peer = opts ? new Peer(opts) : new Peer();
 
     this.peer.on('open', (id) => {
+      this.peerId = id;
       store.myId = id;
       store.status = 'open';
       if (remoteId) this.connect(remoteId);
@@ -91,13 +94,39 @@ class P2PSession {
   }
 
   /**
+   * Peer を未起動なら起動し、peerId を返す（router presence 用）。
+   * @returns {Promise<string>}
+   */
+  ensurePeer() {
+    if (this.peer && this.peerId) return Promise.resolve(this.peerId);
+    return new Promise((resolve) => {
+      if (!this.peer) this.start();
+      /** @type {Peer} */ (this.peer).once('open', (id) => resolve(id));
+    });
+  }
+
+  /**
    * 指定ピアへ接続する。
    * @param {string} remoteId
    * @returns {void}
    */
   connect(remoteId) {
-    if (!this.peer || this.conns.has(remoteId)) return;
+    if (!this.peer || this.conns.has(remoteId) || remoteId === this.peerId) return;
     this.#bind(this.peer.connect(remoteId));
+  }
+
+  /**
+   * router が返した近接ピア集合と接続状態を同期する。
+   * 未知のピアへ接続し、範囲外になった接続を切断する。
+   * @param {string[]} ids
+   * @returns {void}
+   */
+  syncPeers(ids) {
+    const desired = new Set(ids);
+    for (const id of ids) this.connect(id);
+    for (const [pid, conn] of this.conns) {
+      if (!desired.has(pid)) conn.close();
+    }
   }
 
   /**

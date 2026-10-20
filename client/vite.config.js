@@ -24,6 +24,11 @@ export default defineConfig({
     proxy: {
       // クライアントは VITE_AI_BASE_URL 未設定時モック応答を使うため、
       // プロキシはバックエンド実装後に利用する。
+      '/rtr': {
+        target: process.env.ROUTER_URL ?? 'http://localhost:8788',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/rtr/, ''),
+      },
       '/ai': {
         target: AI_SERVER_URL,
         changeOrigin: true,

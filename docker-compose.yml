@@ -1,4 +1,20 @@
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+  router:
+    build: ./router
+    volumes:
+      - ./router/app:/app/app
+    ports:
+      - "8788:8788"
+    environment:
+      REDIS_URL: redis://redis:6379
+      CONNECT_RADIUS: "2048"
+    depends_on:
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8788 --reload
   client:
     image: node:24.12.0
     container_name: bobo_rpg_client
@@ -9,6 +25,7 @@ services:
       - CHOKIDAR_USEPOLLING=true
       # vite dev proxy(/ai) の転送先。コンテナからはサービス名で解決する
       - AI_SERVER_URL=http://server:8787
+      - ROUTER_URL=http://router:8788
     volumes:
       - ./client:/app
     ports:
