@@ -51,6 +51,10 @@ let rafId = 0;
 let lastTime = 0;
 let blinkAt = 0;
 let blinkPhase = -1;
+/** 視線ターゲットの基準高さ（モデルの目線レベル） */
+let lookBaseY = 1.4;
+/** アイドルモーション用: 基準姿勢を保持するボーン一覧 */
+const idleBones = /** @type {Array<{name: string, bone: THREE.Object3D, base: THREE.Euler, baseY: number}>} */ ([]);
 /** VRMモデルが実装する口形状名への解決キャッシュ（aa→'aa' or 'a' 等） */
 const resolvedVowels = /** @type {Record<string, string | null>} */ ({});
 /** @type {ResizeObserver | null} */
@@ -150,6 +154,7 @@ async function loadModel(url) {
     }
     vrm = loaded;
     resolveVowelNames(loaded.expressionManager);
+    captureIdleBones(loaded);
     frameCameraTo(loaded.scene);
     emit('ready');
   } catch (err) {
@@ -171,18 +176,40 @@ function frameCameraTo(object) {
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const height = Math.max(size.y, 0.5);
-  // 身長の62%（頭〜胸あたり）を縦方向に収める距離をfovから計算
-  const fitHeight = height * 0.62;
+  // 全身（+頭上マージン8%）を縦方向に収める距離をfovから計算
+  const fitHeight = height * 1.08;
   const fovRad = THREE.MathUtils.degToRad(camera.fov);
   const dist = Math.max(
     (fitHeight * 0.5) / Math.tan(fovRad / 2),
-    height * 0.4,
+    height * 0.5,
   );
-  const focusY = box.max.y - height * 0.2;
+  const focusY = center.y;
   camera.position.set(center.x, focusY, center.z + dist);
   camera.lookAt(center.x, focusY, center.z);
+  lookBaseY = box.max.y - height * 0.1;
   if (lookTarget) {
-    lookTarget.position.set(center.x, focusY, center.z + dist);
+    lookTarget.position.set(center.x, lookBaseY, center.z + dist);
+  }
+}
+
+/**
+ * アイドルモーション対象ボーンの基準姿勢を記録する。
+ * @param {import('@pixiv/three-vrm').VRM} v
+ * @returns {void}
+ */
+function captureIdleBones(v) {
+  idleBones.length = 0;
+  const names = /** @type {const} */ (['hips', 'spine', 'chest', 'head']);
+  for (const name of names) {
+    const bone = v.humanoid?.getNormalizedBoneNode(name);
+    if (bone) {
+      idleBones.push({
+        name,
+        bone,
+        base: bone.rotation.clone(),
+        baseY: bone.position.y,
+      });
+    }
   }
 }
 
@@ -270,6 +297,7 @@ function disposeAvatar() {
     fallbackMouth = null;
     fallbackHead = null;
   }
+  idleBones.length = 0;
 }
 
 /**
@@ -355,21 +383,50 @@ function updateMouth(dt) {
 }
 
 /**
- * 思考中の目線逸らし・首かしげ。
+ * 自然なアイドルモーション＋思考中の目線逸らし・首かしげ。
+ * - 呼吸: hips の微少な上下・spine/chest の前傾揺れ
+ * - 揺れ: chest/head の緩やかな周期的ロール・ヨー
+ * - 視線: 常時ゆるく漂い、思考中は横へ逸らす
  * @param {number} now - 秒
  * @returns {void}
  */
-function updateThinkingPose(now) {
-  const sway = Math.sin(now * 0.8);
+function updateMotion(now) {
+  const breath = Math.sin(now * 2.0); // 呼吸 ~0.32Hz
+  const drift = Math.sin(now * 0.37); // 視線のゆるい漂い
+  const sway = Math.sin(now * 0.55); // 体の揺れ
+
+  // 視線ターゲット
   if (lookTarget && camera) {
-    const baseZ = camera.position.z + 0.2;
-    const x = props.thinking ? 0.35 + sway * 0.05 : sway * 0.02;
-    lookTarget.position.x = x;
-    lookTarget.position.z = baseZ;
+    lookTarget.position.x =
+      (props.thinking ? 0.35 : 0) + drift * 0.08;
+    lookTarget.position.y = lookBaseY + Math.sin(now * 0.6) * 0.03;
+    lookTarget.position.z = camera.position.z + 0.2;
   }
-  const head = vrm?.humanoid?.getNormalizedBoneNode('head') ?? fallbackHead;
-  if (head) {
-    head.rotation.z = (props.thinking ? 0.1 : 0) + sway * 0.015;
+
+  // VRM ボーンへアイドル姿勢を適用（基準姿勢 + 微振動）
+  for (const b of idleBones) {
+    const r = b.bone.rotation;
+    r.x = b.base.x;
+    r.y = b.base.y;
+    r.z = b.base.z;
+    if (b.name === 'hips') {
+      b.bone.position.y = b.baseY + breath * 0.004;
+      r.z += sway * 0.012;
+    } else if (b.name === 'spine') {
+      r.x += 0.015 + breath * 0.01;
+    } else if (b.name === 'chest') {
+      r.x += breath * 0.008;
+      r.y += sway * 0.04;
+    } else if (b.name === 'head') {
+      r.y += Math.sin(now * 0.45) * 0.03;
+      r.z += (props.thinking ? 0.1 : 0) + Math.sin(now * 0.7) * 0.012;
+    }
+  }
+
+  // フォールバックアバターはグループごと揺らす
+  if (fallbackAvatar) {
+    fallbackAvatar.position.y = breath * 0.012;
+    fallbackAvatar.rotation.y = Math.sin(now * 0.3) * 0.05;
   }
 }
 
@@ -387,7 +444,7 @@ function animate(timeMs) {
   updateExpressions(dt);
   updateBlink(now, dt);
   updateMouth(dt);
-  updateThinkingPose(now);
+  updateMotion(now);
   vrm?.update(dt);
 
   renderer.render(scene, camera);
