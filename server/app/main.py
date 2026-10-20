@@ -37,8 +37,9 @@ memory = MemoryStore(DATA_DIR)
 _FILLER_RE = re.compile(r"^(…|あの|えっと|えーと|うーん|その)")
 
 # 中国語混入の検出（日本語文では使わない文字）
-_CN_CERTAIN = re.compile(r"[吗呢吧哪]")
-_CN_SUSPECT = re.compile(r"[了吗呢吧哪是]")
+# 中国語判定: 簡体字のみの文字集合（日本語の常用漢字は含めない）
+_CN_CERTAIN = re.compile(r"[吗呢吧哪这]")
+_CN_SUSPECT = re.compile(r"[个们说会请汉谢对为关现应识读问让还觉边过动谁么你她在吗呢吧哪这]")
 
 
 def _is_chinese_line(text: str) -> bool:
