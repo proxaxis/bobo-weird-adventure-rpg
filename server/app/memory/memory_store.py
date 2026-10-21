@@ -15,21 +15,14 @@ from collections import deque
 from pathlib import Path
 
 import httpx
-import networkx as nx
 
-from .config import (
+from ..config import (
     HISTORY_LIMIT,
     OLLAMA_BASE_URL,
     OLLAMA_EMBED_MODEL,
     OLLAMA_MODEL,
 )
-
-# 共起グラフで拾う概念語（世界観ベースのシード辞書）
-_SEED_CONCEPTS = (
-    "ボイド", "汚染", "ウイルス", "放射能", "クリーチャー", "シェルター",
-    "プレイヤー", "仲間", "信頼", "戦闘", "探索", "食料", "水", "薬",
-    "旧世界", "記憶", "家族", "死", "怖い", "助け",
-)
+from .graph_rag import GraphRAG
 
 
 def _bigrams(text: str) -> set[str]:
@@ -87,7 +80,7 @@ class MemoryStore:
         self._dir = Path(data_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._hist: dict[str, deque] = {}
-        self._graphs: dict[str, nx.Graph] = {}
+        self._graph = GraphRAG(data_dir)
         self._params: dict[str, list[float]] = {}
 
     # ---------- public ----------
@@ -121,16 +114,7 @@ class MemoryStore:
 
     def related_concepts(self, npc_id: str, query: str, k: int = 5) -> list[str]:
         """クエリ中の概念語にグラフ上で近接する語を返す。"""
-        g = self._load_graph(npc_id)
-        hits = [c for c in _SEED_CONCEPTS if c in query]
-        out: set[str] = set()
-        for h in hits:
-            if h in g:
-                neighbors = sorted(
-                    g[h].items(), key=lambda kv: kv[1].get("w", 0), reverse=True
-                )
-                out.update(n for n, _ in neighbors[:k])
-        return sorted(out)[:k]
+        return self._graph.related(npc_id, query, k)
 
     async def record(self, npc_id: str, player_msg: str, npc_reply: str,
                      params: list[float] | None = None) -> None:
@@ -144,7 +128,7 @@ class MemoryStore:
         hist.append(turn)
         self._save_hist(npc_id)
 
-        self._update_graph(npc_id, text)
+        self._graph.update(npc_id, text)
 
         if params is not None:
             self._params[npc_id] = params
@@ -183,33 +167,6 @@ class MemoryStore:
         self._path("hist", npc_id).write_text(
             json.dumps(list(self._hist[npc_id]), ensure_ascii=False)
         )
-
-    def _load_graph(self, npc_id: str) -> nx.Graph:
-        if npc_id not in self._graphs:
-            g = nx.Graph()
-            path = self._path("graph", npc_id)
-            if path.exists():
-                try:
-                    data = json.loads(path.read_text())
-                    for u, v, w in data.get("edges", []):
-                        g.add_edge(u, v, w=w)
-                except Exception:
-                    pass
-            self._graphs[npc_id] = g
-        return self._graphs[npc_id]
-
-    def _update_graph(self, npc_id: str, text: str) -> None:
-        g = self._load_graph(npc_id)
-        hits = [c for c in _SEED_CONCEPTS if c in text]
-        for i, a in enumerate(hits):
-            for b in hits[i + 1 :]:
-                w = g.get_edge_data(a, b, {}).get("w", 0) + 1
-                g.add_edge(a, b, w=w)
-        if hits:
-            data = {"edges": [[u, v, d.get("w", 1)] for u, v, d in g.edges(data=True)]}
-            self._path("graph", npc_id).write_text(
-                json.dumps(data, ensure_ascii=False)
-            )
 
     def _save_params(self, npc_id: str) -> None:
         self._path("params", npc_id).write_text(

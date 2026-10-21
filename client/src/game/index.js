@@ -5,7 +5,7 @@
 
 import Phaser from 'phaser';
 
-import { FieldScene } from '@/game/scenes/FieldScene.js';
+import { WorldScene } from '@/game/scenes/WorldScene.js';
 
 /**
  * Phaser.Game を生成する。
@@ -28,6 +28,6 @@ export function createGame(parent) {
         debug: false,
       },
     },
-    scene: [FieldScene],
+    scene: [WorldScene],
   });
 }

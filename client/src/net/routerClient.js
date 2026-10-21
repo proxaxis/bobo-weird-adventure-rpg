@@ -1,26 +1,24 @@
 /**
- * @fileoverview Router サーバのクライアント。
- * - /presence: 座標申告 → 近接 peerId 一覧
- * - /chunk: チャンク生成レジストリ（重複生成防止）
+ * @fileoverview Router サーバの REST クライアント（単発呼び出し用）。
+ * 高頻度の座標申告・リース・エンティティ同期は
+ * net/network.js → workers/NetworkWorker.js 経由の WS/REST を使う。
+ * ここは低頻度の単発呼び出し（DeltaMap 取得・関係性・チャンクseed）を担当。
  */
 
 const BASE = import.meta.env?.VITE_ROUTER_URL ?? '/rtr';
 
 /**
- * @param {string} peerId
- * @param {number} x
- * @param {number} y
- * @returns {Promise<Array<{peerId: string, x: number, y: number}>>}
+ * @param {string} path
+ * @param {object} body
+ * @returns {Promise<any>}
  */
-export async function reportPresence(peerId, x, y) {
-  const res = await fetch(`${BASE}/presence`, {
+async function post(path, body) {
+  const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ peerId, x, y }),
+    body: JSON.stringify(body),
   });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.peers ?? [];
+  return res.json().catch(() => ({}));
 }
 
 /**
@@ -36,45 +34,60 @@ export async function queryChunk(cx, cy) {
 }
 
 /**
- * チャンク内エンティティ位置を報告する（所有者のみ）。
- * @param {string} chunkKey - "cx,cy"
- * @param {string} owner
- * @param {Array<{id: string, type: string, x: number, y: number, meta?: object}>} entities
- * @returns {Promise<void>}
- */
-export async function reportEntities(chunkKey, owner, entities) {
-  await fetch(`${BASE}/entities/report`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chunk: chunkKey, owner, entities }),
-  });
-}
-
-/**
- * チャンク内エンティティを取得する。
- * @param {number} cx
- * @param {number} cy
- * @returns {Promise<{owner: string, entities: Array<{id: string, type: string, x: number, y: number, meta?: object}>}>}
- */
-export async function getEntities(cx, cy) {
-  const res = await fetch(`${BASE}/entities/${cx}/${cy}`);
-  if (!res.ok) return { owner: '', entities: [] };
-  return res.json();
-}
-
-/**
  * チャンク生成結果を登録。既登録なら既存 seed/owner が返る。
  * @param {number} cx
  * @param {number} cy
  * @param {number} seed
- * @param {string} owner
+ * @param {string} owner - プレイヤーUUID
  * @returns {Promise<{owner: string, seed: number, created: boolean}>}
  */
 export async function registerChunk(cx, cy, seed, owner) {
-  const res = await fetch(`${BASE}/chunk/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key: `${cx},${cy}`, seed, owner }),
-  });
-  return res.json();
+  return post('/chunk/register', { key: `${cx},${cy}`, seed, owner });
+}
+
+/**
+ * DeltaMap スタンプを書き込む（整地・建築・破壊の上書き）。
+ * @param {string} uuid
+ * @param {Array<{tx: number, ty: number, v: object}>} tiles
+ * @returns {Promise<{ok: boolean, stamped: number}>}
+ */
+export async function stampDelta(uuid, tiles) {
+  return post('/delta/stamp', { uuid, tiles });
+}
+
+/**
+ * チャンクの DeltaMap を取得する。
+ * @param {number} cx
+ * @param {number} cy
+ * @returns {Promise<Record<string, object>>} "tx,ty" → tile delta
+ */
+export async function fetchDelta(cx, cy) {
+  const res = await fetch(`${BASE}/delta/${cx}/${cy}`);
+  if (!res.ok) return {};
+  const data = await res.json().catch(() => ({}));
+  return data.tiles ?? {};
+}
+
+/**
+ * NPC × プレイヤー関係性（最終対話時刻・履歴）を取得する。
+ * @param {string} npcId
+ * @param {string} uuid
+ * @returns {Promise<{lastInteractionTime: number, history: Array<{t:number,player:string,npc:string}>}>}
+ */
+export async function getRelation(npcId, uuid) {
+  const res = await fetch(`${BASE}/rel/${encodeURIComponent(npcId)}/${encodeURIComponent(uuid)}`);
+  if (!res.ok) return { lastInteractionTime: 0, history: [] };
+  return res.json().catch(() => ({ lastInteractionTime: 0, history: [] }));
+}
+
+/**
+ * 対話終了を記録する（最終対話時刻の更新＋履歴追加）。
+ * @param {string} npcId
+ * @param {string} uuid
+ * @param {string} playerText
+ * @param {string} npcText
+ * @returns {Promise<{previous: number, now: number}>}
+ */
+export async function touchRelation(npcId, uuid, playerText, npcText) {
+  return post('/rel/touch', { npcId, uuid, player: playerText, npc: npcText });
 }

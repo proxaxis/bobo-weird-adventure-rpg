@@ -9,8 +9,10 @@ import { computed, ref, shallowRef } from 'vue';
 
 import { eventBus } from '@/core/eventBus.js';
 import { GAME_EVENTS } from '@/core/events.js';
-import { motionForExpression } from '@/dialog/motions.js';
+import { getPlayerUuid } from '@/core/Identity.js';
+import { motionForExpression } from '@/vrm/motions.js';
 import { streamDialogChunks } from '@/net/aiClient.js';
+import { getRelation, touchRelation } from '@/net/routerClient.js';
 import { useCompanionStore } from '@/stores/companionStore.js';
 import { useParameterStore } from '@/stores/parameterStore.js';
 import { usePlayerStore } from '@/stores/playerStore.js';
@@ -67,6 +69,9 @@ export const useDialogStore = defineStore('dialog', () => {
   const motionName = ref('');
   const motionSeq = ref(0);
 
+  /** このNPCとの最終対話時刻（router の RelationshipManager より）。 */
+  const lastInteractionTime = ref(0);
+
   /**
    * 対話を開く（Phaser の dialog:open から呼ばれる）。
    * @param {import('@/types.js').DialogOpenPayload} payload
@@ -89,6 +94,15 @@ export const useDialogStore = defineStore('dialog', () => {
     isOpen.value = true;
     // 探索フェーズを停止
     eventBus.emit(GAME_EVENTS.GAME_PAUSE, true);
+    // 最終対話時刻を router から取得して time-delta 文脈に使う
+    void getPlayerUuid()
+      .then((uuid) => getRelation(payload.npcId, uuid))
+      .then((rel) => {
+        lastInteractionTime.value = rel.lastInteractionTime ?? 0;
+      })
+      .catch(() => {
+        lastInteractionTime.value = 0;
+      });
   }
 
   /**
@@ -123,6 +137,8 @@ export const useDialogStore = defineStore('dialog', () => {
     isStreaming.value = true;
     isThinking.value = true;
 
+    const uuid = await getPlayerUuid();
+
     /** @type {import('@/types.js').DialogRequest} */
     const request = {
       message: trimmed,
@@ -130,6 +146,8 @@ export const useDialogStore = defineStore('dialog', () => {
       environment: player.environment,
       npcId: npcId.value,
       npcName: npcName.value,
+      playerUuid: uuid,
+      lastInteractionTime: lastInteractionTime.value,
     };
 
     try {
@@ -176,6 +194,13 @@ export const useDialogStore = defineStore('dialog', () => {
       reply.streaming = false;
       isStreaming.value = false;
       isThinking.value = false;
+      // 関係性を記録（最終対話時刻 + 直近発話履歴）
+      const npcText = reply.text;
+      void touchRelation(npcId.value, uuid, trimmed, npcText)
+        .then((r) => {
+          lastInteractionTime.value = r.now ?? Date.now();
+        })
+        .catch(() => {});
     }
   }
 

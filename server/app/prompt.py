@@ -36,6 +36,9 @@ _SYSTEM = """あなたは終末世界に生きる少女型自律AI「{name}」�
 # 周囲の状況
 {env_summary}
 
+# プレイヤーとの時間関係
+{time_delta}
+
 {memory_block}
 """
 
@@ -73,6 +76,7 @@ def build_messages(
     recalled: list[dict],
     concepts: list[str],
     topics: list[str],
+    time_delta: str = "初対面。相手を警戒している。",
 ) -> list[dict]:
     """system + 履歴 + user の messages を構築する。"""
     memory_lines = []
@@ -93,6 +97,7 @@ def build_messages(
         exprs=", ".join(EXPRESSION_PRESETS),
         param_summary=_param_summary(req.parameters),
         env_summary=_env_summary(req.environment),
+        time_delta=time_delta,
         memory_block="\n".join(memory_lines),
     )
 

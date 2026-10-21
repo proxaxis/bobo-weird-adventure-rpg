@@ -10,12 +10,13 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMUtils, VRMLoaderPlugin } from '@pixiv/three-vrm';
 
-import { charToVowel, VOWEL_ALIASES } from '@/dialog/lipSync.js';
-import { GESTURES } from '@/dialog/motions.js';
+import { GESTURES } from '@/vrm/motions.js';
+import { charToVowel, VOWEL_ALIASES } from '@/vrm/TextLipSync.js';
 import {
   EXPRESSION_PRESETS,
   resolveExpressionName,
-} from '@/dialog/vrmExpressions.js';
+} from '@/vrm/VRMExpression.js';
+import { ProceduralMotion } from '@/vrm/VRMProceduralMotion.js';
 
 const props = defineProps({
   /** .vrm ファイルのURL（未配置でもフォールバックで動作） */
@@ -58,8 +59,17 @@ let lookTarget = null;
 
 let rafId = 0;
 let lastTime = 0;
-let blinkAt = 0;
-let blinkPhase = -1;
+/** プロシージャルモーション（呼吸・視線・瞬き・揺らぎ）の状態機械。 */
+const motion = new ProceduralMotion();
+/** モーション適用コンテキスト（GC回避のため再利用）。 */
+const motionCtx = /** @type {any} */ ({
+  idleBones: /** @type {any[]} */ ([]),
+  mood: {},
+  gesture: null,
+  gestureT: 1,
+  fallbackAvatar: null,
+  fallbackHead: null,
+});
 /** 視線ターゲットの基準高さ（モデルの目線レベル） */
 let lookBaseY = 1.4;
 /** アイドルモーション用: 基準姿勢を保持するボーン一覧 */
@@ -81,7 +91,6 @@ const mouthValue = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
 
 const VOWEL_KEYS = ['aa', 'ih', 'ou', 'ee', 'oh'];
 const CHARS_PER_SECOND = 14;
-const BLINK_DURATION = 0.14;
 
 /**
  * ストリーミング文字をリップシンクキューへ追加する。
@@ -134,7 +143,7 @@ function initThree() {
 
   for (const p of EXPRESSION_PRESETS) exprWeights[p] = 0;
   exprWeights.neutral = 1;
-  blinkAt = performance.now() / 1000 + 2;
+  motion.blinkAt = performance.now() / 1000 + 2;
 }
 
 /**
@@ -378,27 +387,13 @@ function updateExpressions(dt) {
 }
 
 /**
- * 瞬きを適用する。
+ * 瞬きを適用する（非対称カーブ: 急閉0.07s → 緩開0.11s）。
  * @param {number} now - 秒
  * @param {number} dt - 秒
  * @returns {void}
  */
 function updateBlink(now, dt) {
-  if (blinkPhase < 0 && now >= blinkAt) {
-    blinkPhase = 0;
-  }
-  let blink = 0;
-  if (blinkPhase >= 0) {
-    blinkPhase += dt;
-    const t = blinkPhase / BLINK_DURATION;
-    if (t >= 1) {
-      blinkPhase = -1;
-      blinkAt = now + 2 + Math.random() * 3.5;
-    } else {
-      blink = t < 0.5 ? t * 2 : (1 - t) * 2;
-    }
-  }
-  vrm?.expressionManager?.setValue('blink', blink);
+  vrm?.expressionManager?.setValue('blink', motion.updateBlink(now, dt));
 }
 
 /**
@@ -431,32 +426,25 @@ function updateMouth(dt) {
 }
 
 /**
- * 自然なアイドルモーション＋思考中の目線逸らし・首かしげ。
- * - 呼吸: hips の微少な上下・spine/chest の前傾揺れ
- * - 揺れ: chest/head の緩やかな周期的ロール・ヨー
- * - 視線: 常時ゆるく漂い、思考中は横へ逸らす
+ * 自然なアイドルモーション＋サッカード視線＋思考中の目線逸らし。
+ * 実装は VRMProceduralMotion.js へ委譲する。
  * @param {number} now - 秒
+ * @param {number} dt - 秒
  * @returns {void}
  */
-function updateMotion(now) {
+function updateMotion(now, dt) {
   const m = props.mood;
-  // 警戒度: 恐怖と不信（低信頼）で高まる
   const guard = Math.min(1, Math.max(0, (m.fear ?? 0) * 0.7 + (1 - (m.trust ?? 0.3)) * 0.5));
-  // 開放度: 高信頼・低恐怖で上がる（警戒と相殺）
-  const open = Math.min(1, Math.max(0, ((m.trust ?? 0.3) - 0.55) * 1.8)) * (1 - guard);
-  // 揺れ振幅: 警戒で硬直、心を開くと大きく
-  const amp = (1 - guard * 0.55) * (1 + open * 0.4);
-  const aggr = Math.min(1, Math.max(0, m.aggression ?? 0));
+  const drift = Math.sin(now * 0.37) * 0.08;
 
-  const breath = Math.sin(now * 2.0) * amp; // 呼吸 ~0.32Hz
-  const drift = Math.sin(now * 0.37); // 視線のゆるい漂い
-  const sway = Math.sin(now * 0.55) * amp; // 体の揺れ
-
-  // 視線ターゲット: 警戒時は目を逸らす
+  // サッカード視線: 顔領域内を跳躍し実位置は緩追従。
+  // 思考中は斜め下へ、警戒時は横へ逸らす。
+  motion.updateGaze(now, dt, drift);
   if (lookTarget && camera) {
-    lookTarget.position.x =
-      (props.thinking ? 0.35 : 0) + drift * 0.08 + guard * 0.3;
-    lookTarget.position.y = lookBaseY + Math.sin(now * 0.6) * 0.03 - guard * 0.1;
+    lookTarget.position.x = motion.gazeX + guard * 0.3 +
+      (motion.thinking ? 0.3 : 0);
+    lookTarget.position.y = lookBaseY + motion.gazeY - guard * 0.1 +
+      (motion.thinking ? -0.22 : 0);
     lookTarget.position.z = camera.position.z + 0.2;
   }
 
@@ -467,61 +455,13 @@ function updateMotion(now) {
   const gt = g ? (now - /** @type {{start: number}} */ (activeGesture).start) / g.duration : 1;
   if (gt >= 1) activeGesture = null;
 
-  // VRM ボーンへアイドル姿勢を適用（基準姿勢 + 微振動 + ジェスチャ）
-  for (const b of idleBones) {
-    const r = b.bone.rotation;
-    r.x = b.base.x;
-    r.y = b.base.y;
-    r.z = b.base.z;
-    if (b.name === 'hips') {
-      b.bone.position.y = b.baseY + breath * 0.004;
-      r.z += sway * 0.012;
-    } else if (b.name === 'spine') {
-      // 警戒→僅かに後傾、心を開く→前傾、攻撃的→わずかに前のめり
-      r.x += 0.015 + breath * 0.01 - guard * 0.045 + open * 0.04 + aggr * 0.02;
-    } else if (b.name === 'chest') {
-      r.x += breath * 0.008 - guard * 0.03;
-      // 警戒時は体を少し逸らす（半身になる）
-      r.y += sway * 0.04 + guard * 0.12;
-    } else if (b.name === 'head') {
-      r.y += Math.sin(now * 0.45) * 0.03 * amp + guard * 0.14;
-      r.x += guard * 0.06; // やや俯き加減
-      r.z += (props.thinking ? 0.1 : 0) + Math.sin(now * 0.7) * 0.012 * amp + open * 0.08;
-    } else if (b.name === 'leftUpperArm') {
-      // 警戒時は腕を体へ引き寄せる
-      r.z += guard * 0.08 + Math.sin(now * 0.5) * 0.02 * amp;
-    } else if (b.name === 'rightUpperArm') {
-      r.z -= guard * 0.08 + Math.sin(now * 0.5 + 0.6) * 0.02 * amp;
-    }
-    // ジェスチャ差分（hips.y は位置、他は回転へ加算）
-    if (g && gt < 1) {
-      const c = g.curves[b.name];
-      if (c) {
-        r.x += c.x?.(gt) ?? 0;
-        r.y += c.y !== undefined && b.name !== 'hips' ? c.y(gt) : 0;
-        r.z += c.z?.(gt) ?? 0;
-        if (b.name === 'hips' && c.y !== undefined) {
-          b.bone.position.y += c.y(gt);
-        }
-      }
-    }
-  }
-
-  // フォールバックアバターはグループごと揺らす（ジェスチャも近似適用）
-  if (fallbackAvatar) {
-    fallbackAvatar.position.y = breath * 0.012;
-    fallbackAvatar.rotation.y = Math.sin(now * 0.3) * 0.05;
-    if (g && gt < 1) {
-      const hc = g.curves.head ?? {};
-      fallbackAvatar.position.y += g.curves.hips?.y?.(gt) ?? 0;
-      fallbackAvatar.rotation.x += (g.curves.spine?.x?.(gt) ?? 0) * 0.6;
-      if (fallbackHead) {
-        fallbackHead.rotation.x += hc.x?.(gt) ?? 0;
-        fallbackHead.rotation.y += hc.y?.(gt) ?? 0;
-        fallbackHead.rotation.z += hc.z?.(gt) ?? 0;
-      }
-    }
-  }
+  motionCtx.idleBones = idleBones;
+  motionCtx.mood = m;
+  motionCtx.gesture = g;
+  motionCtx.gestureT = gt;
+  motionCtx.fallbackAvatar = fallbackAvatar;
+  motionCtx.fallbackHead = fallbackHead;
+  motion.updateMotion(now, motionCtx);
 }
 
 /**
@@ -538,11 +478,16 @@ function animate(timeMs) {
   updateExpressions(dt);
   updateBlink(now, dt);
   updateMouth(dt);
-  updateMotion(now);
+  updateMotion(now, dt);
   vrm?.update(dt);
 
   renderer.render(scene, camera);
 }
+
+watch(
+  () => props.thinking,
+  (v) => motion.setThinking(v),
+);
 
 watch(
   () => props.modelUrl,

@@ -20,4 +20,9 @@ export const GAME_EVENTS = Object.freeze({
   PLAYER_DEATH: /** @type {'player:death'} */ ('player:death'),
   PLAYER_SPEND_VOID: /** @type {'player:spend-void'} */ ('player:spend-void'),
   NPC_NAME_REVEALED: /** @type {'npc:name-revealed'} */ ('npc:name-revealed'),
+  BASE_PERM_CHANGED: /** @type {'base:perm-changed'} */ ('base:perm-changed'),
+  ROUTER_PEERS: /** @type {'router:peers'} */ ('router:peers'),
+  ROUTER_LEASE: /** @type {'router:lease'} */ ('router:lease'),
+  ROUTER_ENTITIES: /** @type {'router:entities'} */ ('router:entities'),
+  ROUTER_PUSH: /** @type {'router:push'} */ ('router:push'),
 });

@@ -6,7 +6,7 @@ SEARXNG_URL または TAVILY_API_KEY が設定されている場合のみ有効�
 
 import httpx
 
-from .config import SEARXNG_URL, TAVILY_API_KEY
+from ..config import SEARXNG_URL, TAVILY_API_KEY
 
 
 async def search_topics(query: str, limit: int = 3) -> list[str]:

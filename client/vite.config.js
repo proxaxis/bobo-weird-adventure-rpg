@@ -27,6 +27,7 @@ export default defineConfig({
       '/rtr': {
         target: process.env.ROUTER_URL ?? 'http://localhost:8788',
         changeOrigin: true,
+        ws: true,
         rewrite: (p) => p.replace(/^\/rtr/, ''),
       },
       '/ai': {

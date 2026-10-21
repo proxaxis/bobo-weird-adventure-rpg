@@ -60,14 +60,14 @@ function join() {
         </button>
         <span class="status" :class="p2p.status">{{ p2p.status }}</span>
       </div>
-      <!-- 拠点ドアの通過許可（接続中ピアごと） -->
+      <!-- 拠点ドアの通過許可（接続中ピアごと・永続UUID単位） -->
       <div v-if="p2p.connectedIds.length" class="perm-list">
         <div class="perm-title">拠点ドア許可</div>
         <label v-for="id in p2p.connectedIds" :key="id" class="perm-row">
           <input
             type="checkbox"
-            :checked="base.isPermitted(id)"
-            @change="base.toggle(id)"
+            :checked="base.isPermitted(p2p.uuidOf(id))"
+            @change="base.toggle(p2p.uuidOf(id))"
           />
           <span class="perm-id">{{ id.slice(0, 12) }}…</span>
         </label>

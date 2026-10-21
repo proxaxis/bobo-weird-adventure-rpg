@@ -7,6 +7,9 @@
 import { defineStore } from 'pinia';
 import { shallowRef } from 'vue';
 
+import { eventBus } from '@/core/eventBus.js';
+import { GAME_EVENTS } from '@/core/events.js';
+
 export const useBaseStore = defineStore('base', () => {
   /** @type {import('vue').ShallowRef<Set<string>>} */
   const permittedIds = shallowRef(new Set());
@@ -29,6 +32,8 @@ export const useBaseStore = defineStore('base', () => {
     if (allowed) next.add(peerId);
     else next.delete(peerId);
     permittedIds.value = next;
+    // ドアのDeltaMapスタンプを更新するためシーンへ通知
+    eventBus.emit(GAME_EVENTS.BASE_PERM_CHANGED, { peerId, allowed });
   }
 
   /**

@@ -46,6 +46,8 @@
  * @property {EnvironmentState} environment - 環境スナップショット
  * @property {string} [npcId] - 対話相手の識別子（サーバ側メモリのキー）
  * @property {string} [npcName] - 対話相手の表示名
+ * @property {string} [playerUuid] - 永続プレイヤーUUID（関係性・push宛先）
+ * @property {number} [lastInteractionTime] - 最終対話時刻（UNIXミリ秒、初対面は0）
  */
 
 /**
@@ -132,6 +134,36 @@
  */
 
 /**
+ * router の近接ピア一覧（router:peers）。
+ * @typedef {Object} RouterPeers
+ * @property {Array<{uuid: string, peerId: string, x: number, y: number}>} peers
+ */
+
+/**
+ * チャンクリース結果（router:lease）。
+ * @typedef {Object} RouterLease
+ * @property {number} cx
+ * @property {number} cy
+ * @property {string} owner - 所有者のプレイヤーUUID
+ * @property {boolean} granted - 自分が獲得したか
+ */
+
+/**
+ * チャンクエンティティ取得結果（router:entities）。
+ * @typedef {Object} RouterEntities
+ * @property {number} cx
+ * @property {number} cy
+ * @property {string} owner
+ * @property {Array<{id: string, type: string, x: number, y: number, meta?: object}>} entities
+ */
+
+/**
+ * AIサーバ Deep Path からのpush（router:push）。
+ * @typedef {Object} RouterPush
+ * @property {{type?: string, npcId?: string, diffs?: ParameterDiff[]} | null} payload
+ */
+
+/**
  * mitt のイベント型マップ（Phaser ↔ Vue 疎結合プロトコル）。
  * ※コロンを含むキーは @property 記法で表せないためインライン型で定義する。
  * @typedef {{
@@ -150,6 +182,11 @@
  *   'player:death': PlayerDeath,
  *   'player:spend-void': {amount: number},
  *   'npc:name-revealed': CompanionJoinPayload,
+ *   'base:perm-changed': {peerId: string, allowed: boolean},
+ *   'router:peers': RouterPeers,
+ *   'router:lease': RouterLease,
+ *   'router:entities': RouterEntities,
+ *   'router:push': RouterPush,
  * }} GameEventMap
  */
 

@@ -6,7 +6,7 @@ services:
   router:
     build: ./router
     volumes:
-      - ./router/app:/app/app
+      - ./router/src:/app/src
     ports:
       - "8788:8788"
     environment:
@@ -14,7 +14,7 @@ services:
       CONNECT_RADIUS: "2048"
     depends_on:
       - redis
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8788 --reload
+    command: node --watch src/index.js
   client:
     image: node:24.12.0
     container_name: bobo_rpg_client
@@ -41,6 +41,8 @@ services:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - OLLAMA_MODEL=qwen2.5:7b-instruct
       - DATA_DIR=/app/data
+      # Deep Path のパラメータ差分 push 先（router の /push 中継）
+      - ROUTER_URL=http://router:8788
     volumes:
       - ./server/data:/app/data
       - ./server/app:/app/app

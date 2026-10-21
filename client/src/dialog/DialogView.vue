@@ -6,7 +6,7 @@
  */
 import { computed, nextTick, ref, watch } from 'vue';
 
-import VrmCanvas from '@/dialog/VrmCanvas.vue';
+import VrmCanvas from '@/vrm/VRMCanvas.vue';
 import { P_INDEX } from '@/constants/parameters.js';
 import { useDialogStore } from '@/stores/dialogStore.js';
 import { useParameterStore } from '@/stores/parameterStore.js';

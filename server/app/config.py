@@ -18,5 +18,8 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 # メモリ永続化先
 DATA_DIR = os.getenv("DATA_DIR", "data")
 
+# Deep Path の push 中継先（router）
+ROUTER_URL = os.getenv("ROUTER_URL", "http://localhost:8788")
+
 # 会話履歴の保持ターン数
 HISTORY_LIMIT = int(os.getenv("HISTORY_LIMIT", "40"))

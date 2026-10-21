@@ -19,6 +19,9 @@ export const usePeerStore = defineStore('p2p', () => {
   /** 接続中ピアの ID 一覧。 */
   const connectedIds = ref(/** @type {string[]} */ ([]));
 
+  /** peerId → 永続UUID の対応表（router の peers 応答で更新）。 */
+  const uuidByPeerId = ref(/** @type {Map<string, string>} */ (new Map()));
+
   /** 直近エラーメッセージ。 */
   const error = ref('');
 
@@ -41,6 +44,27 @@ export const usePeerStore = defineStore('p2p', () => {
   }
 
   /**
+   * peerId と永続UUIDの対応を記録する。
+   * @param {string} peerId
+   * @param {string} uuid
+   * @returns {void}
+   */
+  function mapPeerUuid(peerId, uuid) {
+    if (uuidByPeerId.value.get(peerId) === uuid) return;
+    const next = new Map(uuidByPeerId.value);
+    next.set(peerId, uuid);
+    uuidByPeerId.value = next;
+  }
+
+  /**
+   * @param {string} peerId
+   * @returns {string} 永続UUID（不明なら peerId そのまま）
+   */
+  function uuidOf(peerId) {
+    return uuidByPeerId.value.get(peerId) ?? peerId;
+  }
+
+  /**
    * @returns {void}
    */
   function reset() {
@@ -50,5 +74,16 @@ export const usePeerStore = defineStore('p2p', () => {
     error.value = '';
   }
 
-  return { myId, status, connectedIds, error, addPeer, removePeer, reset };
+  return {
+    myId,
+    status,
+    connectedIds,
+    error,
+    uuidByPeerId,
+    addPeer,
+    removePeer,
+    mapPeerUuid,
+    uuidOf,
+    reset,
+  };
 });

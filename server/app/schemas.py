@@ -22,3 +22,7 @@ class DialogRequest(BaseModel):
     environment: EnvironmentState = Field(default_factory=EnvironmentState)
     npcId: str = "default"
     npcName: str = "MOB"
+    # 永続プレイヤーUUID（Deep Path の push 宛先）
+    playerUuid: str = ""
+    # router RelationshipManager が返す最終対話時刻（UNIXミリ秒、初対面は0）
+    lastInteractionTime: float = 0.0
