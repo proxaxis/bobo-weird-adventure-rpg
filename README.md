@@ -95,10 +95,11 @@
 - [x] 温度パラメータの性格連動調整
 
 ### 未実装 / 今後
-- [ ] VRM 実モデル配置（`client/public/models/*.vrm`）
+- [x] VRM 実モデル配置（`client/public/models/yui.vrm` 等）
 - [ ] 仲間の戦闘・採取行動の高度化（AI指示、戦術）
 - [ ] 真の unreliable DataChannel（PeerJS は信頼型のみ）
-- [ ] マルチセッション/ルーム管理、永続プレイヤーアカウント
+- [ ] マルチセッション/ルーム管理
+- [ ] サーバ権威の位置/攻撃/採取検証（現在はクライアント信頼）
 - [ ] Chroma/Qdrant 等の本格 Vector DB
 - [ ] TTS 音声合成・音声リップシンク
 
@@ -198,3 +199,9 @@ python3 tools/gen_audio.py  # client/public/audio/ へ wav 一式
 * [x] **Phase 4**: FastAPI + Ollama による自律対話・パラメータ差分返却エンジン
 * [x] **Phase 5**: PeerJS による P2P 同期（位置・ボイド取得・攻撃・略奪）
 * [x] **Phase 6**: メモリ・embeddingリコール・Graph RAG素地・話題検索の統合
+* [x] **Phase 7**: Master Spec 準拠の全面再編
+  - router: Python→Hono.js 書換、WS座標集約、チャンクリース(TTL5s)、DeltaMap、関係性管理、AI push中継
+  - client: FloatingOrigin(2048pxセクタ)で int32 全域を安全描画、BigInt空間ハッシュ、IndexedDB永続UUID、NetworkWorker分離
+  - vrm: プロシージャルモーション分離（呼吸位相差・素数比揺らぎ・サッカード視線・非対称まばたき・思考演出）
+  - server: Fast Path(構造化出力拘束)+Deep Path(非同期解析→push)二重経路、時間差文脈注入、api/memory/tools構成
+  - world: 拠点整地スタンプ、決定論的NPC ID(npc_{cx}_{cy}_{i})
