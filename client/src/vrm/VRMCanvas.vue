@@ -245,6 +245,30 @@ function applyRestPose(v) {
   // 肘をごく少しだけ前へ曲げる（自然な脱力感）
   set('leftLowerArm', 'x', 0.08);
   set('rightLowerArm', 'x', 0.08);
+  // 指を緩やかに握る（Tポーズの棒状手指を解消）
+  // 正規化ボーンでは指の屈曲はローカルZ軸。左=正、右=負。
+  const fingers = [
+    'IndexProximal', 'IndexIntermediate', 'IndexDistal',
+    'MiddleProximal', 'MiddleIntermediate', 'MiddleDistal',
+    'RingProximal', 'RingIntermediate', 'RingDistal',
+    'LittleProximal', 'LittleIntermediate', 'LittleDistal',
+  ];
+  for (const f of fingers) {
+    // 末端ほど強く曲げる自然なカール
+    const curl = f.endsWith('Proximal') ? 0.25 : f.endsWith('Intermediate') ? 0.35 : 0.3;
+    set(`left${f}`, 'z', curl);
+    set(`right${f}`, 'z', -curl);
+  }
+  // 親指は内側へ
+  for (const f of ['ThumbProximal', 'ThumbIntermediate', 'ThumbDistal']) {
+    set(`left${f}`, 'y', 0.3);
+    set(`right${f}`, 'y', -0.3);
+    set(`left${f}`, 'z', 0.15);
+    set(`right${f}`, 'z', -0.15);
+  }
+  // 手首をわずかに内へ（脱力した自然な垂れ方）
+  set('leftHand', 'y', -0.1);
+  set('rightHand', 'y', 0.1);
 }
 
 function captureIdleBones(v) {

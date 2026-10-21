@@ -194,6 +194,10 @@ async def stream_fast_path(
     """
     heur = heuristic_diffs(req.message)
 
+    # LLM 初回トークンまでの空白を埋めるため、フィラーを最速で送出する
+    yield _line({"t": "……えっと、", "e": "relaxed", "u": []})
+    sent_filler = True
+
     topics: list[str] = []
     topic_query = _pick_topic_query(req.parameters, req.message)
     if topic_query:
@@ -213,17 +217,12 @@ async def stream_fast_path(
 
     reply_text = ""
     first_chunk = True
-    sent_filler = False
     buffer = ""
     pos = 0
 
     def emit_ready(chunk: dict) -> tuple[str, str]:
-        nonlocal first_chunk, sent_filler
+        nonlocal first_chunk
         out = ""
-        if not sent_filler:
-            if not _FILLER_RE.match(chunk["t"]):
-                out += _line({"t": "……えっと、", "e": "relaxed", "u": []})
-            sent_filler = True
         if first_chunk:
             chunk["u"] = chunk["u"] + heur
             first_chunk = False
